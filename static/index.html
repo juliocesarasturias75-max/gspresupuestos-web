@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSPresupuestos Web</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; margin: 0; }
+        header { background: #1e40af; color: white; padding: 16px 24px; }
+        header h1 { margin: 0; font-size: 1.4rem; }
+        .container { display: flex; gap: 14px; padding: 14px; max-width: 1400px; margin: 0 auto; }
+        .panel { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+        .left { width: 320px; flex-shrink: 0; }
+        .right { flex: 1; min-width: 0; }
+        h2 { color: #1e40af; font-size: 0.95rem; margin: 0 0 12px; border-bottom: 2px solid #dbeafe; padding-bottom: 6px; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; margin: 8px 0 3px; }
+        input, textarea { width: 100%; padding: 7px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; }
+        .row2 { display: flex; gap: 8px; }
+        .row2 > div { flex: 1; }
+        .btn { display: inline-block; padding: 8px 14px; border: none; border-radius: 5px; font-weight: 600; cursor: pointer; font-size: 0.85rem; margin: 4px 4px 4px 0; }
+        .btn-primary { background: #1e40af; color: white; }
+        .btn-success { background: #10b981; color: white; }
+        .btn-file { background: #e0f2fe; color: #1e40af; }
+        .status { font-size: 0.78rem; margin-top: 4px; }
+        .ok { color: #10b981; }
+        .err { color: #dc2626; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        th { background: #1e40af; color: white; padding: 8px 6px; text-align: left; }
+        td { padding: 7px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        tr:hover { background: #f8fafc; }
+        .totales { background: #dbeafe; padding: 12px; border-radius: 6px; margin-top: 12px; display: flex; flex-wrap: wrap; gap: 16px; }
+        .totales div { font-size: 0.85rem; }
+        .totales strong { color: #1e40af; }
+        .hidden { display: none; }
+        @media (max-width: 900px) { .container { flex-direction: column; } .left { width: 100%; } }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>GSPresupuestos Web</h1>
+    </header>
+
+    <div class="container">
+        <div class="panel left">
+            <h2>1. Archivos</h2>
+            <input type="file" id="fileTxt" accept=".txt" class="hidden">
+            <button class="btn btn-file" onclick="document.getElementById('fileTxt').click()">Subir TXT</button>
+            <div id="statusTxt" class="status">Esperando TXT...</div>
+
+            <input type="file" id="filePdf" accept=".pdf" class="hidden">
+            <button class="btn btn-file" onclick="document.getElementById('filePdf').click()">Subir PDF (dibujos)</button>
+            <div id="statusPdf" class="status">Opcional</div>
+
+            <input type="file" id="fileCond" accept=".txt" class="hidden">
+            <button class="btn btn-file" onclick="document.getElementById('fileCond').click()">Subir Condiciones</button>
+            <div id="statusCond" class="status">Opcional</div>
+
+            <h2 style="margin-top:16px">2. Cliente</h2>
+            <label>Nº Oferta</label>
+            <input type="text" id="numOferta">
+            <label>Cliente</label>
+            <input type="text" id="cliente">
+            <label>Dirección</label>
+            <input type="text" id="direccion">
+            <label>Teléfono</label>
+            <input type="text" id="telefono">
+            <label>Email</label>
+            <input type="text" id="email">
+            <label>Referencia</label>
+            <input type="text" id="referencia">
+
+            <h2 style="margin-top:16px">3. Márgenes</h2>
+            <div class="row2">
+                <div>
+                    <label>Beneficio (%)</label>
+                    <input type="number" id="margenGlobal" value="20" min="0" max="100" step="0.1">
+                </div>
+                <div>
+                    <label>Colocación (€)</label>
+                    <input type="number" id="colocGlobal" value="50" min="0" step="0.01">
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="aplicarMargenes()" style="margin-top:10px;width:100%">Aplicar márgenes</button>
+        </div>
+
+        <div class="panel right">
+            <h2>Partidas del presupuesto</h2>
+            <div id="tablaWrap">
+                <p style="color:#64748b">Carga un archivo TXT para ver las partidas.</p>
+            </div>
+            <div id="totales" class="totales hidden"></div>
+            <button class="btn btn-success" onclick="generarPdf()" style="margin-top:14px" id="btnPdf" disabled>
+                Generar PDF
+            </button>
+            <div id="statusPdfGen" class="status"></div>
+        </div>
+    </div>
+
+    <script>
+        let items = [];
+        let condicionesTexto = "";
+
+        document.getElementById("fileTxt").addEventListener("change", async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const fd = new FormData();
+            fd.append("file", file);
+            try {
+                const res = await fetch("/api/upload-txt", { method: "POST", body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error");
+                items = data.items;
+                document.getElementById("statusTxt").innerHTML = `<span class="ok">✅ ${file.name} (${data.count} partidas)</span>`;
+                renderTabla();
+            } catch (err) {
+                document.getElementById("statusTxt").innerHTML = `<span class="err">❌ ${err.message}</span>`;
+            }
+        });
+
+        document.getElementById("filePdf").addEventListener("change", async (e) => {
+            const file = e.target.files[0];
+            if (!file || !items.length) {
+                alert("Primero carga el TXT con las partidas.");
+                return;
+            }
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("items_json", JSON.stringify(items));
+            try {
+                const res = await fetch("/api/upload-pdf", { method: "POST", body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error");
+                items = data.items;
+                document.getElementById("statusPdf").innerHTML = `<span class="ok">✅ ${data.dibujos_count} dibujos asociados</span>`;
+                renderTabla();
+            } catch (err) {
+                document.getElementById("statusPdf").innerHTML = `<span class="err">❌ ${err.message}</span>`;
+            }
+        });
+
+        document.getElementById("fileCond").addEventListener("change", async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const fd = new FormData();
+            fd.append("file", file);
+            try {
+                const res = await fetch("/api/upload-condiciones", { method: "POST", body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error");
+                condicionesTexto = data.texto;
+                document.getElementById("statusCond").innerHTML = `<span class="ok">✅ ${file.name}</span>`;
+            } catch (err) {
+                document.getElementById("statusCond").innerHTML = `<span class="err">❌ ${err.message}</span>`;
+            }
+        });
+
+        async function aplicarMargenes() {
+            if (!items.length) { alert("No hay partidas."); return; }
+            const body = {
+                items,
+                margen_global: parseFloat(document.getElementById("margenGlobal").value) || 0,
+                colocacion_global: parseFloat(document.getElementById("colocGlobal").value) || 0,
+            };
+            const res = await fetch("/api/calcular", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.detail || "Error"); return; }
+            items = data.items;
+            renderTotales(data.totales);
+        }
+
+        function renderTotales(t) {
+            const el = document.getElementById("totales");
+            el.classList.remove("hidden");
+            el.innerHTML = `
+                <div><strong>Base:</strong> ${t.total_base.toFixed(2)} €</div>
+                <div><strong>IVA:</strong> ${t.iva.toFixed(2)} €</div>
+                <div><strong>Total:</strong> ${t.total_final.toFixed(2)} €</div>
+                <div><strong>Beneficio:</strong> ${t.beneficio.toFixed(2)} €</div>
+            `;
+            document.getElementById("btnPdf").disabled = false;
+            renderTablaFilas(t.filas);
+        }
+
+        function renderTablaFilas(filas) {
+            if (!filas) return;
+            let html = `<table><thead><tr>
+                <th>Pos</th><th>Uds</th><th>Descripción</th>
+                <th>Coste</th><th>Coloc.</th><th>%</th><th>PVP</th><th>Total</th>
+            </tr></thead><tbody>`;
+            for (const f of filas) {
+                const desc = (f.desc || "").replace(/<br\/?>/gi, " ").replace(/<[^>]+>/g, "");
+                const corta = desc.length > 40 ? desc.slice(0, 40) + "..." : desc;
+                html += `<tr>
+                    <td>${f.pos}</td><td>${f.uds}</td><td>${corta}</td>
+                    <td>${f.coste_u.toFixed(2)}</td><td>${f.colocacion.toFixed(2)}</td>
+                    <td>${f.margen.toFixed(1)}%</td><td>${f.pvp_u.toFixed(2)}</td>
+                    <td>${f.subtotal.toFixed(2)} €</td>
+                </tr>`;
+            }
+            html += "</tbody></table>";
+            document.getElementById("tablaWrap").innerHTML = html;
+        }
+
+        function renderTabla() {
+            if (!items.length) return;
+            let html = `<table><thead><tr><th>Pos</th><th>Uds</th><th>Descripción</th><th>Coste u.</th></tr></thead><tbody>`;
+            for (const it of items) {
+                const desc = (it.desc || "").replace(/<br\/?>/gi, " ").replace(/<[^>]+>/g, "");
+                const corta = desc.length > 50 ? desc.slice(0, 50) + "..." : desc;
+                html += `<tr><td>${it.pos}</td><td>${it.uds}</td><td>${corta}</td><td>${it.coste_u.toFixed(2)} €</td></tr>`;
+            }
+            html += "</tbody></table>";
+            document.getElementById("tablaWrap").innerHTML = html;
+            document.getElementById("btnPdf").disabled = true;
+            document.getElementById("totales").classList.add("hidden");
+        }
+
+        async function generarPdf() {
+            if (!items.length) { alert("No hay partidas."); return; }
+            const body = {
+                items,
+                datos_cliente: {
+                    num_oferta: document.getElementById("numOferta").value,
+                    cliente: document.getElementById("cliente").value,
+                    direccion: document.getElementById("direccion").value,
+                    telefono: document.getElementById("telefono").value,
+                    email: document.getElementById("email").value,
+                    referencia: document.getElementById("referencia").value,
+                },
+                condiciones_texto: condicionesTexto,
+            };
+            document.getElementById("statusPdfGen").textContent = "Generando PDF...";
+            try {
+                const res = await fetch("/api/generar-pdf", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || "Error al generar PDF");
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `Presupuesto_${document.getElementById("numOferta").value || "web"}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+                document.getElementById("statusPdfGen").innerHTML = `<span class="ok">✅ PDF descargado</span>`;
+            } catch (err) {
+                document.getElementById("statusPdfGen").innerHTML = `<span class="err">❌ ${err.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>
