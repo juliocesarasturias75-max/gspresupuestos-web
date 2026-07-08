@@ -36,7 +36,23 @@
         .btn-row { display: flex; flex-direction: column; gap: 6px; }
         .status { font-size: 0.78rem; margin-top: 4px; }
         .ok { color: #10b981; }
+        .warn { color: #d97706; font-weight: 600; }
         .err { color: #dc2626; }
+        .aviso-desajuste-box {
+            background: #fff7ed; border: 2px solid #f59e0b; border-radius: 8px;
+            padding: 12px; margin-top: 10px; font-size: 0.78rem; line-height: 1.45;
+        }
+        .aviso-desajuste-box strong { color: #b45309; }
+        .aviso-desajuste-box .aviso-user {
+            margin-top: 8px; padding-top: 8px; border-top: 1px solid #fcd34d;
+            font-size: 0.72rem; color: #92400e;
+        }
+        .aviso-cifras { display: flex; gap: 12px; margin: 12px 0; }
+        .aviso-cifra {
+            flex: 1; text-align: center; background: #fef3c7; border-radius: 6px; padding: 10px;
+        }
+        .aviso-cifra .num { font-size: 1.4rem; font-weight: 800; color: #b45309; }
+        .aviso-cifra .lbl { font-size: 0.72rem; color: #92400e; }
         table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
         th { background: #1e40af; color: white; padding: 8px 6px; text-align: left; }
         td { padding: 7px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
@@ -105,6 +121,8 @@
             <input type="file" id="filePdf" accept=".pdf" class="hidden">
             <button class="btn btn-file" id="btnSubirPdf" onclick="intentarSubirPdf()">Subir PDF (dibujos)</button>
             <div id="statusPdf" class="status">Opcional</div>
+
+            <div id="bannerDesajuste" class="aviso-desajuste-box hidden"></div>
 
             <input type="file" id="fileCond" accept=".txt" class="hidden">
             <button class="btn btn-file" onclick="document.getElementById('fileCond').click()">Subir Condiciones</button>
@@ -186,6 +204,36 @@
             <div id="listaOfertas" style="max-height:320px;overflow-y:auto"></div>
             <div class="modal-actions">
                 <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalOfertas()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalDesajuste">
+        <div class="modal" style="max-width:540px">
+            <h3 style="color:#dc2626;margin-bottom:8px">⚠️ Diferencia entre TXT y PDF</h3>
+            <p style="font-size:0.85rem;color:#374151;margin:0 0 8px">
+                El número de partidas del TXT <strong>no coincide</strong> con los dibujos extraídos del PDF.
+            </p>
+            <div class="aviso-cifras">
+                <div class="aviso-cifra">
+                    <div class="num" id="desajustePartidas">0</div>
+                    <div class="lbl">Partidas (TXT)</div>
+                </div>
+                <div class="aviso-cifra">
+                    <div class="num" id="desajusteDibujos">0</div>
+                    <div class="lbl">Dibujos (PDF)</div>
+                </div>
+            </div>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px;font-size:0.8rem;color:#991b1b;line-height:1.5">
+                <strong>Bajo su responsabilidad:</strong> los dibujos pueden quedar mal asociados a las partidas.
+                Revise el presupuesto antes de entregarlo al cliente. SECO PVC / el sistema no se hace responsable
+                de errores derivados de archivos que no coinciden.
+            </div>
+            <div id="desajusteUsuario" class="aviso-user" style="margin-top:12px"></div>
+            <div class="modal-actions" style="margin-top:16px">
+                <button class="btn" style="background:#f59e0b;color:white;flex:1" onclick="aceptarDesajuste()">
+                    Entiendo y continúo bajo mi responsabilidad
+                </button>
             </div>
         </div>
     </div>
@@ -286,6 +334,52 @@
         let plantillasCond = [];
         let archivosBloqueados = false;
         let ofertaActivaNombre = "";
+        let usuarioActual = null;
+        let desajusteInfo = null;
+
+        function nombreUsuario() {
+            if (usuarioActual?.nombre) return usuarioActual.nombre;
+            if (usuarioActual?.email) return usuarioActual.email;
+            const s = getSession();
+            return s?.user?.nombre || s?.user?.email || "Usuario";
+        }
+
+        function ocultarAvisoDesajuste() {
+            desajusteInfo = null;
+            document.getElementById("bannerDesajuste").classList.add("hidden");
+            document.getElementById("bannerDesajuste").innerHTML = "";
+            document.getElementById("modalDesajuste").classList.remove("active");
+        }
+
+        function actualizarBannerDesajuste() {
+            if (!desajusteInfo) return;
+            const b = document.getElementById("bannerDesajuste");
+            b.classList.remove("hidden");
+            b.innerHTML = `
+                <strong>⚠️ DESAJUSTE TXT / PDF</strong><br>
+                Partidas: <strong>${desajusteInfo.partidas}</strong> · Dibujos: <strong>${desajusteInfo.dibujos}</strong><br>
+                PDF: ${escHtml(desajusteInfo.pdf)}<br>
+                <em>Continuado bajo responsabilidad de ${escHtml(desajusteInfo.usuario)}</em><br>
+                <span style="font-size:0.68rem">${escHtml(desajusteInfo.fecha)}</span>`;
+        }
+
+        function mostrarModalDesajuste(partidas, dibujos, pdfName) {
+            document.getElementById("desajustePartidas").textContent = partidas;
+            document.getElementById("desajusteDibujos").textContent = dibujos;
+            const fecha = new Date().toLocaleString("es-ES");
+            document.getElementById("desajusteUsuario").innerHTML =
+                `<strong>Usuario:</strong> ${escHtml(nombreUsuario())}<br><strong>Fecha:</strong> ${fecha}`;
+            desajusteInfo = {
+                partidas, dibujos, pdf: pdfName,
+                usuario: nombreUsuario(), fecha,
+            };
+            document.getElementById("modalDesajuste").classList.add("active");
+        }
+
+        function aceptarDesajuste() {
+            document.getElementById("modalDesajuste").classList.remove("active");
+            actualizarBannerDesajuste();
+        }
 
         function intentarSubirTxt() {
             if (!verificarArchivosPermitidos()) return;
@@ -364,6 +458,7 @@
             document.getElementById("statusCond").textContent = "Opcional";
             document.getElementById("statusOferta").innerHTML = "";
             document.getElementById("statusNota").innerHTML = "";
+            ocultarAvisoDesajuste();
             document.getElementById("tablaWrap").innerHTML = '<p style="color:#64748b">Carga un archivo TXT para ver las partidas.</p>';
             document.getElementById("tablaToolbar").classList.add("hidden");
             document.getElementById("totales").classList.add("hidden");
@@ -374,6 +469,7 @@
         (async () => {
             if (!(await requiereAuth())) return;
             const me = await cargarUsuarioActual();
+            usuarioActual = me;
             if (me) {
                 document.getElementById("userLabel").textContent = me.nombre || me.email;
                 if (me.is_admin) {
@@ -419,6 +515,7 @@
                 margenGlobal: getMargenGlobal(),
                 colocGlobal: getColocGlobal(),
                 notaGlobal: document.getElementById("notaGlobal").value,
+                desajusteInfo,
                 cliente: {
                     num_oferta: document.getElementById("numOferta").value,
                     cliente: document.getElementById("cliente").value,
@@ -448,6 +545,14 @@
             document.getElementById("referencia").value = c.referencia || "";
             if (condicionesTexto) {
                 document.getElementById("statusCond").innerHTML = `<span class="ok">✅ Condiciones de la oferta cargada</span>`;
+            }
+            if (d.desajusteInfo) {
+                desajusteInfo = d.desajusteInfo;
+                actualizarBannerDesajuste();
+                document.getElementById("statusPdf").innerHTML =
+                    `<span class="warn">⚠️ ${desajusteInfo.dibujos} dibujos / ${desajusteInfo.partidas} partidas — DESAJUSTE</span>`;
+            } else {
+                ocultarAvisoDesajuste();
             }
             if (items.length) {
                 document.getElementById("tablaToolbar").classList.remove("hidden");
@@ -688,6 +793,7 @@
                 filaSeleccionada = -1;
                 ofertaActualId = null;
                 bloquearArchivos(false);
+                ocultarAvisoDesajuste();
                 document.getElementById("statusTxt").innerHTML = `<span class="ok">✅ ${file.name} (${data.count} partidas)</span>`;
                 document.getElementById("tablaToolbar").classList.remove("hidden");
                 renderTabla();
@@ -703,6 +809,7 @@
                 return;
             }
             if (!verificarArchivosPermitidos()) { e.target.value = ""; return; }
+            const partidasAntes = items.length;
             const fd = new FormData();
             fd.append("file", file);
             fd.append("items_json", JSON.stringify(items));
@@ -711,7 +818,16 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || "Error");
                 items = data.items;
-                document.getElementById("statusPdf").innerHTML = `<span class="ok">✅ ${data.dibujos_count} dibujos asociados</span>`;
+                const dibujos = data.dibujos_count;
+                if (partidasAntes !== dibujos) {
+                    document.getElementById("statusPdf").innerHTML =
+                        `<span class="warn">⚠️ ${dibujos} dibujos / ${partidasAntes} partidas — DESAJUSTE</span>`;
+                    mostrarModalDesajuste(partidasAntes, dibujos, file.name);
+                } else {
+                    ocultarAvisoDesajuste();
+                    document.getElementById("statusPdf").innerHTML =
+                        `<span class="ok">✅ ${dibujos} dibujos asociados (${partidasAntes} partidas)</span>`;
+                }
                 if (calculado) renderTotales(recalcularLocal());
                 else renderTabla();
             } catch (err) {
