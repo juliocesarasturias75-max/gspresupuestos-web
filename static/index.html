@@ -50,8 +50,12 @@
         .btn-resumen { background: #3b82f6; color: white; }
         .btn-add { background: #8b5cf6; color: white; }
         .btn-del { background: #ef4444; color: white; }
+        .btn-edit { background: #0ea5e9; color: white; }
         .tabla-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
         .inp-celda { width: 62px; padding: 4px; font-size: 0.78rem; border: 1px solid #cbd5e1; border-radius: 3px; text-align: right; }
+        .inp-celda-sm { width: 48px; text-align: center; }
+        .nota-icon { color: #f59e0b; font-size: 0.75rem; margin-left: 4px; }
+        .modal-desc { font-size: 0.82rem; color: #6b7280; background: #f8fafc; padding: 8px; border-radius: 4px; margin-bottom: 12px; max-height: 80px; overflow-y: auto; }
         tr.tabla-row { cursor: pointer; }
         tr.tabla-row.selected { background: #dbeafe !important; }
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000; align-items: center; justify-content: center; }
@@ -125,6 +129,7 @@
             <h2>Partidas del presupuesto</h2>
             <div class="tabla-toolbar hidden" id="tablaToolbar">
                 <button class="btn btn-add" onclick="abrirModalPartida()">➕ Añadir partida</button>
+                <button class="btn btn-edit" onclick="abrirModalEditar()">✏️ Editar partida</button>
                 <button class="btn btn-del" onclick="eliminarPartida()">🗑 Eliminar partida</button>
             </div>
             <div id="tablaWrap">
@@ -171,6 +176,41 @@
             <div class="modal-actions">
                 <button class="btn btn-success" onclick="guardarPartidaManual()">Guardar partida</button>
                 <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalPartida()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalEditar">
+        <div class="modal">
+            <h3 id="editarTitulo">✏️ Editar partida</h3>
+            <div class="modal-desc" id="editarDescPreview"></div>
+            <div class="row2">
+                <div>
+                    <label>Unidades</label>
+                    <input type="number" id="editarUds" min="1" step="1">
+                </div>
+                <div>
+                    <label>Coste base (€)</label>
+                    <input type="number" id="editarCoste" min="0" step="0.01">
+                </div>
+            </div>
+            <div class="row2" style="margin-top:8px">
+                <div>
+                    <label>Margen individual (%)</label>
+                    <input type="number" id="editarMargen" min="0" step="0.1">
+                </div>
+                <div>
+                    <label>Colocación individual (€)</label>
+                    <input type="number" id="editarColoc" min="0" step="0.01">
+                </div>
+            </div>
+            <label style="margin-top:10px">📝 Nota individual (aparece al final en PDF)</label>
+            <textarea id="editarNotaIndividual" rows="2" placeholder="Nota visible en el presupuesto..."></textarea>
+            <label>Notas personalizadas</label>
+            <textarea id="editarNotas" rows="3" placeholder="Notas internas o para el cliente..."></textarea>
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="guardarEdicionPartida()">Guardar cambios</button>
+                <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalEditar()">Cancelar</button>
             </div>
         </div>
     </div>
@@ -324,6 +364,65 @@
             if (calculado) renderTotales(recalcularLocal());
         }
 
+        function cambiarUds(idx, val) {
+            const uds = parseInt(val, 10);
+            if (!uds || uds <= 0) { alert("Unidades inválidas."); return; }
+            items[idx].uds = uds;
+            if (calculado) renderTotales(recalcularLocal());
+        }
+
+        function cambiarCoste(idx, val) {
+            const coste = parseFloat(val);
+            if (isNaN(coste) || coste < 0) { alert("Coste inválido."); return; }
+            items[idx].coste_u = coste;
+            if (calculado) renderTotales(recalcularLocal());
+        }
+
+        function tieneNotas(item) {
+            return (item.notas && item.notas.trim()) || (item.nota_individual && item.nota_individual.trim());
+        }
+
+        function abrirModalEditar(idx) {
+            const i = idx !== undefined ? idx : filaSeleccionada;
+            if (i < 0 || i >= items.length) {
+                alert("Selecciona una partida haciendo clic en su fila.");
+                return;
+            }
+            filaSeleccionada = i;
+            const item = items[i];
+            document.getElementById("editarTitulo").textContent = `✏️ Editar ${item.pos}`;
+            document.getElementById("editarDescPreview").textContent = limpiarDesc(item.desc);
+            document.getElementById("editarUds").value = item.uds;
+            document.getElementById("editarCoste").value = item.coste_u.toFixed(2);
+            document.getElementById("editarMargen").value = getMargenItem(item).toFixed(1);
+            document.getElementById("editarColoc").value = getColocItem(item).toFixed(2);
+            document.getElementById("editarNotaIndividual").value = item.nota_individual || "";
+            document.getElementById("editarNotas").value = item.notas || "";
+            document.getElementById("modalEditar").classList.add("active");
+        }
+
+        function cerrarModalEditar() {
+            document.getElementById("modalEditar").classList.remove("active");
+        }
+
+        function guardarEdicionPartida() {
+            if (filaSeleccionada < 0) return;
+            const item = items[filaSeleccionada];
+            const uds = parseInt(document.getElementById("editarUds").value, 10);
+            const coste = parseFloat(document.getElementById("editarCoste").value);
+            if (!uds || uds <= 0) { alert("Unidades inválidas."); return; }
+            if (isNaN(coste) || coste < 0) { alert("Coste inválido."); return; }
+            item.uds = uds;
+            item.coste_u = coste;
+            item.margen_individual = parseFloat(document.getElementById("editarMargen").value) || 0;
+            item.colocacion_individual = parseFloat(document.getElementById("editarColoc").value) || 0;
+            item.nota_individual = document.getElementById("editarNotaIndividual").value.trim();
+            item.notas = document.getElementById("editarNotas").value.trim();
+            cerrarModalEditar();
+            if (calculado) renderTotales(recalcularLocal());
+            else renderTabla();
+        }
+
         function seleccionarFila(idx) {
             filaSeleccionada = idx;
             document.querySelectorAll(".tabla-row").forEach((r, i) => {
@@ -443,9 +542,16 @@
                 const margenCell = editable
                     ? `<input class="inp-celda" type="number" min="0" step="0.1" value="${getMargenItem(items[i]).toFixed(1)}" onchange="cambiarMargen(${i}, this.value)" onclick="event.stopPropagation()">`
                     : `${f.margen.toFixed(1)}%`;
-                html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})">
-                    <td>${escHtml(f.pos)}</td><td>${f.uds}</td><td>${escHtml(corta)}</td>
-                    <td>${f.coste_u.toFixed(2)}</td><td>${colocCell}</td>
+                const udsCell = editable
+                    ? `<input class="inp-celda inp-celda-sm" type="number" min="1" step="1" value="${items[i].uds}" onchange="cambiarUds(${i}, this.value)" onclick="event.stopPropagation()">`
+                    : `${f.uds}`;
+                const costeCell = editable
+                    ? `<input class="inp-celda" type="number" min="0" step="0.01" value="${items[i].coste_u.toFixed(2)}" onchange="cambiarCoste(${i}, this.value)" onclick="event.stopPropagation()">`
+                    : `${f.coste_u.toFixed(2)}`;
+                const notaIcon = tieneNotas(items[i]) ? '<span class="nota-icon" title="Tiene notas">📝</span>' : '';
+                html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})" ondblclick="abrirModalEditar(${i})">
+                    <td>${escHtml(f.pos)}</td><td>${udsCell}</td><td>${escHtml(corta)}${notaIcon}</td>
+                    <td>${costeCell}</td><td>${colocCell}</td>
                     <td>${margenCell}</td><td>${f.pvp_u.toFixed(2)}</td>
                     <td>${f.subtotal.toFixed(2)} €</td>
                 </tr>`;
@@ -462,8 +568,9 @@
                 const desc = limpiarDesc(it.desc);
                 const corta = desc.length > 50 ? desc.slice(0, 50) + "..." : desc;
                 const sel = i === filaSeleccionada ? " selected" : "";
-                html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})">
-                    <td>${escHtml(it.pos)}</td><td>${it.uds}</td><td>${escHtml(corta)}</td><td>${it.coste_u.toFixed(2)} €</td></tr>`;
+                const notaIcon = tieneNotas(it) ? '<span class="nota-icon" title="Tiene notas">📝</span>' : '';
+                html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})" ondblclick="abrirModalEditar(${i})">
+                    <td>${escHtml(it.pos)}</td><td>${it.uds}</td><td>${escHtml(corta)}${notaIcon}</td><td>${it.coste_u.toFixed(2)} €</td></tr>`;
             }
             html += "</tbody></table>";
             document.getElementById("tablaWrap").innerHTML = html;
