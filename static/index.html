@@ -12,6 +12,10 @@
         .header-brand { display: flex; align-items: center; }
         .header-logo { height: 36px; width: auto; filter: brightness(0) invert(1); }
         .header-text { text-align: right; line-height: 1.25; }
+        .header-nav { display: flex; align-items: center; gap: 12px; }
+        .header-nav a { color: #bfdbfe; text-decoration: none; font-size: 0.78rem; font-weight: 600; }
+        .header-nav a:hover { color: white; }
+        .user-email { font-size: 0.72rem; color: #93c5fd; }
         .header-title { font-size: 0.82rem; font-weight: 700; }
         .header-version { font-size: 0.65rem; color: #bfdbfe; }
         .container { display: flex; gap: 14px; padding: 14px; max-width: 1400px; margin: 0 auto; }
@@ -76,8 +80,13 @@
                 <div class="header-logo-fallback" style="display:none; font-size:1rem; font-weight:800;">SECOPVC</div>
             </div>
             <div class="header-text">
+                <div class="header-nav">
+                    <a href="/perfil">Mi perfil</a>
+                    <a href="#" onclick="abrirModalOfertas(); return false;">Mis ofertas</a>
+                    <a href="#" id="btnLogout" onclick="cerrarSesion(); return false;" style="display:none">Salir</a>
+                </div>
                 <div class="header-title">Generador de Presupuestos</div>
-                <div class="header-version">Versión 2.0</div>
+                <div class="header-version">Versión 2.0 · <span id="userLabel">Modo local</span></div>
             </div>
         </div>
     </header>
@@ -96,6 +105,15 @@
             <input type="file" id="fileCond" accept=".txt" class="hidden">
             <button class="btn btn-file" onclick="document.getElementById('fileCond').click()">Subir Condiciones</button>
             <div id="statusCond" class="status">Opcional</div>
+
+            <label style="margin-top:10px">Plantilla de condiciones</label>
+            <select id="selCondiciones" onchange="aplicarPlantillaCond()">
+                <option value="">— Elegir plantilla —</option>
+            </select>
+
+            <h2 style="margin-top:16px">Ofertas guardadas</h2>
+            <button class="btn btn-primary" onclick="guardarOfertaActual()" style="width:100%">💾 Guardar oferta</button>
+            <div id="statusOferta" class="status"></div>
 
             <h2 style="margin-top:16px">2. Cliente</h2>
             <label>Nº Oferta</label>
@@ -150,6 +168,16 @@
                 </button>
             </div>
             <div id="statusPdfGen" class="status"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalOfertas">
+        <div class="modal" style="max-width:640px">
+            <h3>📂 Mis ofertas guardadas</h3>
+            <div id="listaOfertas" style="max-height:320px;overflow-y:auto"></div>
+            <div class="modal-actions">
+                <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalOfertas()">Cerrar</button>
+            </div>
         </div>
     </div>
 
@@ -220,11 +248,185 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/static/js/auth.js"></script>
     <script>
         let items = [];
         let condicionesTexto = "";
         let calculado = false;
         let filaSeleccionada = -1;
+        let ofertaActualId = null;
+        let plantillasCond = [];
+
+        (async () => {
+            const cfg = await cargarConfig();
+            if (cfg.auth_enabled) {
+                if (!(await requiereAuth())) return;
+                document.getElementById("btnLogout").style.display = "inline";
+                const session = getSession();
+                document.getElementById("userLabel").textContent = session?.user?.email || "Usuario";
+                await cargarPlantillasCond();
+            }
+        })();
+
+        async function cargarPlantillasCond() {
+            try {
+                const res = await apiFetch("/api/condiciones");
+                if (!res.ok) return;
+                const data = await res.json();
+                plantillasCond = data.condiciones || [];
+                const sel = document.getElementById("selCondiciones");
+                sel.innerHTML = '<option value="">— Elegir plantilla —</option>';
+                plantillasCond.forEach((c, i) => {
+                    const opt = document.createElement("option");
+                    opt.value = i;
+                    opt.textContent = c.nombre || `Condiciones ${i + 1}`;
+                    sel.appendChild(opt);
+                });
+            } catch (_) {}
+        }
+
+        function aplicarPlantillaCond() {
+            const idx = document.getElementById("selCondiciones").value;
+            if (idx === "") return;
+            const c = plantillasCond[parseInt(idx, 10)];
+            if (c) {
+                condicionesTexto = c.contenido || "";
+                document.getElementById("statusCond").innerHTML =
+                    `<span class="ok">✅ Plantilla: ${c.nombre || "Condiciones"}</span>`;
+            }
+        }
+
+        function estadoOferta() {
+            return {
+                items,
+                calculado,
+                condicionesTexto,
+                margenGlobal: getMargenGlobal(),
+                colocGlobal: getColocGlobal(),
+                notaGlobal: document.getElementById("notaGlobal").value,
+                cliente: {
+                    num_oferta: document.getElementById("numOferta").value,
+                    cliente: document.getElementById("cliente").value,
+                    direccion: document.getElementById("direccion").value,
+                    telefono: document.getElementById("telefono").value,
+                    email: document.getElementById("email").value,
+                    referencia: document.getElementById("referencia").value,
+                },
+            };
+        }
+
+        function restaurarOferta(datos) {
+            const d = datos.datos || datos;
+            items = d.items || [];
+            calculado = !!d.calculado;
+            condicionesTexto = d.condicionesTexto || "";
+            filaSeleccionada = -1;
+            document.getElementById("margenGlobal").value = d.margenGlobal ?? 20;
+            document.getElementById("colocGlobal").value = d.colocGlobal ?? 50;
+            document.getElementById("notaGlobal").value = d.notaGlobal || "";
+            const c = d.cliente || {};
+            document.getElementById("numOferta").value = c.num_oferta || datos.num_oferta || "";
+            document.getElementById("cliente").value = c.cliente || datos.cliente || "";
+            document.getElementById("direccion").value = c.direccion || "";
+            document.getElementById("telefono").value = c.telefono || "";
+            document.getElementById("email").value = c.email || "";
+            document.getElementById("referencia").value = c.referencia || "";
+            if (items.length) {
+                document.getElementById("tablaToolbar").classList.remove("hidden");
+                if (calculado) {
+                    const t = recalcularLocal();
+                    if (t) renderTotales(t);
+                } else {
+                    renderTabla();
+                }
+            }
+        }
+
+        async function guardarOfertaActual() {
+            if (!items.length) { alert("No hay partidas para guardar."); return; }
+            const st = document.getElementById("statusOferta");
+            const nombre = prompt("Nombre para esta oferta:", document.getElementById("cliente").value || "Nueva oferta");
+            if (!nombre) return;
+            const body = {
+                nombre,
+                num_oferta: document.getElementById("numOferta").value,
+                cliente: document.getElementById("cliente").value,
+                datos: estadoOferta(),
+            };
+            try {
+                const url = ofertaActualId ? `/api/ofertas/${ofertaActualId}` : "/api/ofertas";
+                const method = ofertaActualId ? "PUT" : "POST";
+                const res = await apiFetch(url, {
+                    method,
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) throw new Error((await res.json()).detail || "Error al guardar");
+                const saved = await res.json();
+                ofertaActualId = saved.id;
+                st.innerHTML = `<span class="ok">✅ Oferta guardada: ${nombre}</span>`;
+            } catch (e) {
+                st.innerHTML = `<span class="err">❌ ${e.message}</span>`;
+            }
+        }
+
+        function abrirModalOfertas() {
+            document.getElementById("modalOfertas").classList.add("active");
+            cargarListaOfertas();
+        }
+        function cerrarModalOfertas() {
+            document.getElementById("modalOfertas").classList.remove("active");
+        }
+
+        async function cargarListaOfertas() {
+            const wrap = document.getElementById("listaOfertas");
+            wrap.innerHTML = "<p>Cargando...</p>";
+            try {
+                const res = await apiFetch("/api/ofertas");
+                if (!res.ok) throw new Error("No se pudieron cargar las ofertas");
+                const data = await res.json();
+                const lista = data.ofertas || [];
+                if (!lista.length) {
+                    wrap.innerHTML = "<p style='color:#64748b'>No tienes ofertas guardadas aún.</p>";
+                    return;
+                }
+                wrap.innerHTML = `<table><thead><tr><th>Nombre</th><th>Cliente</th><th>Nº</th><th></th></tr></thead><tbody>${
+                    lista.map(o => `<tr>
+                        <td>${escHtml(o.nombre)}</td>
+                        <td>${escHtml(o.cliente || "")}</td>
+                        <td>${escHtml(o.num_oferta || "")}</td>
+                        <td>
+                            <button class="btn btn-primary" style="padding:4px 8px;font-size:0.75rem" onclick="cargarOferta('${o.id}')">Abrir</button>
+                            <button class="btn btn-del" style="padding:4px 8px;font-size:0.75rem" onclick="borrarOferta('${o.id}')">Borrar</button>
+                        </td>
+                    </tr>`).join("")
+                }</tbody></table>`;
+            } catch (e) {
+                wrap.innerHTML = `<p class="err">${e.message}</p>`;
+            }
+        }
+
+        async function cargarOferta(id) {
+            try {
+                const res = await apiFetch(`/api/ofertas/${id}`);
+                if (!res.ok) throw new Error("Oferta no encontrada");
+                const oferta = await res.json();
+                ofertaActualId = oferta.id;
+                restaurarOferta(oferta);
+                cerrarModalOfertas();
+                document.getElementById("statusOferta").innerHTML =
+                    `<span class="ok">✅ Oferta cargada: ${escHtml(oferta.nombre)}</span>`;
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        async function borrarOferta(id) {
+            if (!confirm("¿Eliminar esta oferta guardada?")) return;
+            await apiFetch(`/api/ofertas/${id}`, { method: "DELETE" });
+            cargarListaOfertas();
+        }
 
         function getMargenGlobal() { return parseFloat(document.getElementById("margenGlobal").value) || 0; }
         function getColocGlobal() { return parseFloat(document.getElementById("colocGlobal").value) || 0; }
@@ -627,7 +829,7 @@
             };
             document.getElementById("statusPdfGen").textContent = "Generando PDF...";
             try {
-                const res = await fetch("/api/generar-pdf", {
+                const res = await apiFetch("/api/generar-pdf", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(body),
@@ -659,7 +861,7 @@
             };
             document.getElementById("statusPdfGen").textContent = "Generando resumen interno...";
             try {
-                const res = await fetch("/api/generar-resumen-pdf", {
+                const res = await apiFetch("/api/generar-resumen-pdf", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(body),

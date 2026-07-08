@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entrar - GSPresupuestos</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            min-height: 100vh; margin: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .card {
+            background: white; border-radius: 12px; padding: 36px;
+            width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+        h1 { color: #1e40af; font-size: 1.4rem; margin: 0 0 6px; }
+        .sub { color: #64748b; font-size: 0.85rem; margin-bottom: 24px; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; margin: 12px 0 4px; }
+        input {
+            width: 100%; padding: 10px; border: 1px solid #cbd5e1;
+            border-radius: 6px; font-size: 0.9rem;
+        }
+        .btn {
+            width: 100%; margin-top: 20px; padding: 12px;
+            background: #1e40af; color: white; border: none;
+            border-radius: 6px; font-weight: 700; font-size: 0.95rem; cursor: pointer;
+        }
+        .btn:hover { background: #1d4ed8; }
+        .err { color: #dc2626; font-size: 0.82rem; margin-top: 12px; min-height: 20px; }
+        .info { color: #64748b; font-size: 0.78rem; margin-top: 16px; text-align: center; }
+        .dev-banner {
+            background: #fef3c7; color: #92400e; padding: 10px; border-radius: 6px;
+            font-size: 0.8rem; margin-bottom: 16px; display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>GSPresupuestos</h1>
+        <p class="sub">Generador de presupuestos · Versión 2.0</p>
+        <div id="devBanner" class="dev-banner">Modo sin login: la app funciona sin autenticación.</div>
+        <form id="loginForm">
+            <label>Email</label>
+            <input type="email" id="email" required autocomplete="username" placeholder="tu@empresa.com">
+            <label>Contraseña</label>
+            <input type="password" id="password" required autocomplete="current-password">
+            <button type="submit" class="btn">Entrar</button>
+        </form>
+        <div id="error" class="err"></div>
+        <p class="info">¿No tienes cuenta? Pide acceso al administrador.</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/static/js/auth.js"></script>
+    <script>
+        (async () => {
+            const cfg = await cargarConfig();
+            if (!cfg.auth_enabled) {
+                document.getElementById("devBanner").style.display = "block";
+                document.getElementById("loginForm").style.display = "none";
+                setTimeout(() => window.location.href = "/", 1500);
+                return;
+            }
+            const session = getSession();
+            if (session?.access_token) {
+                window.location.href = "/";
+            }
+        })();
+
+        document.getElementById("loginForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById("error");
+            errEl.textContent = "";
+            try {
+                await iniciarSesion(
+                    document.getElementById("email").value.trim(),
+                    document.getElementById("password").value
+                );
+                window.location.href = "/";
+            } catch (err) {
+                errEl.textContent = err.message || "Error al iniciar sesión.";
+            }
+        });
+    </script>
+</body>
+</html>

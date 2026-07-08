@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi perfil - GSPresupuestos</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; margin: 0; }
+        header { background: #1e40af; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+        header a { color: #bfdbfe; text-decoration: none; font-size: 0.85rem; margin-left: 14px; }
+        .wrap { max-width: 800px; margin: 20px auto; padding: 0 16px; }
+        .panel { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+        h2 { color: #1e40af; font-size: 1rem; margin: 0 0 14px; border-bottom: 2px solid #dbeafe; padding-bottom: 6px; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; margin: 10px 0 4px; }
+        input, textarea { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; }
+        .row2 { display: flex; gap: 12px; }
+        .row2 > div { flex: 1; }
+        .btn { padding: 9px 16px; border: none; border-radius: 5px; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+        .btn-primary { background: #1e40af; color: white; }
+        .btn-success { background: #10b981; color: white; }
+        .status { font-size: 0.8rem; margin-top: 8px; }
+        .ok { color: #10b981; }
+        .err { color: #dc2626; }
+        .logo-preview { max-height: 60px; margin-top: 8px; }
+        .cond-block { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <header>
+        <strong>GSPresupuestos · Mi perfil</strong>
+        <div>
+            <a href="/">← Volver a la app</a>
+            <a href="#" onclick="cerrarSesion(); return false;">Cerrar sesión</a>
+        </div>
+    </header>
+
+    <div class="wrap">
+        <div class="panel">
+            <h2>Datos de tu empresa (aparecen en el PDF)</h2>
+            <div class="row2">
+                <div>
+                    <label>Nombre empresa</label>
+                    <input type="text" id="nombreEmpresa" placeholder="Ej: Mi Distribuidor S.L.">
+                </div>
+                <div>
+                    <label>CIF</label>
+                    <input type="text" id="cif">
+                </div>
+            </div>
+            <div class="row2">
+                <div>
+                    <label>Teléfono</label>
+                    <input type="text" id="telefono">
+                </div>
+                <div>
+                    <label>Email empresa</label>
+                    <input type="email" id="emailEmpresa">
+                </div>
+            </div>
+            <label>Dirección</label>
+            <input type="text" id="direccion">
+            <label>Pie de página del PDF (una línea por fila)</label>
+            <textarea id="pieTexto" rows="4" placeholder="Calle... · Tel... · www..."></textarea>
+            <label>Logo para el PDF</label>
+            <input type="file" id="logoFile" accept=".png,.jpg,.jpeg,.gif">
+            <img id="logoPreview" class="logo-preview" style="display:none">
+            <div style="margin-top:14px">
+                <button class="btn btn-success" onclick="guardarPerfil()">Guardar perfil</button>
+            </div>
+            <div id="statusPerfil" class="status"></div>
+        </div>
+
+        <div class="panel">
+            <h2>Mis 3 plantillas de condiciones</h2>
+            <p style="font-size:0.82rem;color:#64748b;margin:0 0 12px">
+                Se eligen al generar el presupuesto. Puedes editarlas aquí y ajustarlas en cada oferta.
+            </p>
+            <div id="condicionesWrap"></div>
+            <button class="btn btn-primary" onclick="guardarCondiciones()">Guardar condiciones</button>
+            <div id="statusCond" class="status"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/static/js/auth.js"></script>
+    <script>
+        let condiciones = [];
+
+        (async () => {
+            if (!(await requiereAuth())) return;
+            await cargarPerfil();
+            await cargarCondiciones();
+        })();
+
+        async function cargarPerfil() {
+            const res = await apiFetch("/api/perfil");
+            if (!res.ok) return;
+            const p = await res.json();
+            document.getElementById("nombreEmpresa").value = p.nombre_empresa || "";
+            document.getElementById("cif").value = p.cif || "";
+            document.getElementById("telefono").value = p.telefono || "";
+            document.getElementById("emailEmpresa").value = p.email_empresa || "";
+            document.getElementById("direccion").value = p.direccion || "";
+            document.getElementById("pieTexto").value = p.pie_texto || "";
+            if (p.logo_url) {
+                const img = document.getElementById("logoPreview");
+                img.src = p.logo_url;
+                img.style.display = "block";
+            }
+        }
+
+        async function guardarPerfil() {
+            const body = {
+                nombre_empresa: document.getElementById("nombreEmpresa").value,
+                cif: document.getElementById("cif").value,
+                telefono: document.getElementById("telefono").value,
+                email_empresa: document.getElementById("emailEmpresa").value,
+                direccion: document.getElementById("direccion").value,
+                pie_texto: document.getElementById("pieTexto").value,
+            };
+            const st = document.getElementById("statusPerfil");
+            try {
+                const res = await apiFetch("/api/perfil", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) throw new Error((await res.json()).detail || "Error");
+                const logo = document.getElementById("logoFile").files[0];
+                if (logo) {
+                    const fd = new FormData();
+                    fd.append("file", logo);
+                    const lr = await apiFetch("/api/perfil/logo", { method: "POST", body: fd });
+                    if (!lr.ok) throw new Error("Error al subir logo");
+                    const ld = await lr.json();
+                    if (ld.logo_url) {
+                        const img = document.getElementById("logoPreview");
+                        img.src = ld.logo_url;
+                        img.style.display = "block";
+                    }
+                }
+                st.innerHTML = '<span class="ok">✅ Perfil guardado</span>';
+            } catch (e) {
+                st.innerHTML = `<span class="err">❌ ${e.message}</span>`;
+            }
+        }
+
+        async function cargarCondiciones() {
+            const res = await apiFetch("/api/condiciones");
+            if (!res.ok) return;
+            const data = await res.json();
+            condiciones = data.condiciones || [];
+            while (condiciones.length < 3) {
+                condiciones.push({
+                    nombre: `Condiciones ${condiciones.length + 1}`,
+                    contenido: "",
+                    orden: condiciones.length + 1,
+                });
+            }
+            renderCondiciones();
+        }
+
+        function renderCondiciones() {
+            const wrap = document.getElementById("condicionesWrap");
+            wrap.innerHTML = condiciones.map((c, i) => `
+                <div class="cond-block">
+                    <label>Nombre plantilla ${i + 1}</label>
+                    <input type="text" value="${esc(c.nombre)}" onchange="condiciones[${i}].nombre=this.value">
+                    <label>Texto</label>
+                    <textarea rows="5" onchange="condiciones[${i}].contenido=this.value">${esc(c.contenido || "")}</textarea>
+                </div>
+            `).join("");
+        }
+
+        function esc(t) {
+            return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+        }
+
+        async function guardarCondiciones() {
+            const st = document.getElementById("statusCond");
+            try {
+                const res = await apiFetch("/api/condiciones", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ condiciones }),
+                });
+                if (!res.ok) throw new Error((await res.json()).detail || "Error");
+                st.innerHTML = '<span class="ok">✅ Condiciones guardadas</span>';
+            } catch (e) {
+                st.innerHTML = `<span class="err">❌ ${e.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>
