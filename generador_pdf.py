@@ -302,3 +302,125 @@ def generar_pdf_bytes(
     )
     buffer.seek(0)
     return buffer.read()
+
+
+def _formato_precio_resumen(valor: float) -> str:
+    return f"{valor:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def generar_resumen_pdf_bytes(items: list[dict], datos_cliente: dict) -> bytes:
+    """Genera PDF de resumen interno de cálculos (sin dibujos)."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=15 * mm, rightMargin=15 * mm,
+        topMargin=15 * mm, bottomMargin=15 * mm,
+    )
+    story = []
+    styles = getSampleStyleSheet()
+
+    titulo_style = ParagraphStyle(
+        "TituloResumen", parent=styles["Heading1"],
+        fontSize=16, textColor=colors.HexColor("#1e40af"),
+        alignment=TA_CENTER, spaceAfter=10,
+    )
+    story.append(Paragraph("RESUMEN DE CÁLCULOS INTERNOS", titulo_style))
+
+    num_oferta = datos_cliente.get("num_oferta") or "[NUM. OFERTA]"
+    cliente = datos_cliente.get("cliente") or "[CLIENTE]"
+    fecha = datetime.datetime.now().strftime("%d.%m.%Y")
+
+    info_style = ParagraphStyle(
+        "InfoResumen", parent=styles["Normal"],
+        fontSize=10, alignment=TA_CENTER, spaceAfter=15,
+    )
+    info_texto = f"<b>Oferta:</b> {num_oferta} | <b>Cliente:</b> {cliente} | <b>Fecha:</b> {fecha}"
+    story.append(Paragraph(info_texto, info_style))
+    story.append(Spacer(1, 10))
+
+    tabla_data = [[
+        Paragraph("<b>Pos.</b>", styles["Normal"]),
+        Paragraph("<b>Descripción</b>", styles["Normal"]),
+        Paragraph("<b>Uds</b>", styles["Normal"]),
+        Paragraph("<b>Coste Base</b>", styles["Normal"]),
+        Paragraph("<b>Coloc</b>", styles["Normal"]),
+        Paragraph("<b>% Bº.</b>", styles["Normal"]),
+        Paragraph("<b>PVP Unit.</b>", styles["Normal"]),
+        Paragraph("<b>Total</b>", styles["Normal"]),
+    ]]
+
+    total_base = 0.0
+    for item in items:
+        coste_base = item.get("coste_u", 0.0)
+        uds = item.get("uds", 1)
+        margen = item.get("margen_aplicado")
+        if margen is None:
+            margen = item.get("margen_individual") or 0
+        colocacion = item.get("colocacion_aplicada")
+        if colocacion is None:
+            colocacion = item.get("colocacion_individual") or 0
+        pvp_u = (coste_base + colocacion) * (1 + margen / 100)
+        subtotal = pvp_u * uds
+        total_base += subtotal
+
+        desc_limpia = item.get("desc", "").replace("<br/>", " ").replace("<b>", "").replace("</b>", "")
+        if len(desc_limpia) > 50:
+            desc_limpia = desc_limpia[:47] + "..."
+
+        tabla_data.append([
+            item["pos"],
+            Paragraph(desc_limpia, styles["Normal"]),
+            str(uds),
+            _formato_precio_resumen(coste_base),
+            _formato_precio_resumen(colocacion),
+            f"{margen:.1f}%",
+            _formato_precio_resumen(pvp_u),
+            _formato_precio_resumen(subtotal),
+        ])
+
+    tabla = Table(tabla_data, colWidths=[15 * mm, 60 * mm, 12 * mm, 22 * mm, 15 * mm, 20 * mm, 22 * mm, 24 * mm])
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+        ("TOPPADDING", (0, 0), (-1, 0), 8),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 1), (-1, -1), 7),
+        ("ALIGN", (0, 1), (0, -1), "CENTER"),
+        ("ALIGN", (1, 1), (1, -1), "LEFT"),
+        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 1), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.5, colors.black),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+    ]))
+    story.append(tabla)
+    story.append(Spacer(1, 15))
+
+    iva = total_base * 0.21
+    total_final = total_base + iva
+    totales_style = ParagraphStyle("Totales", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT, spaceAfter=3)
+    total_final_style = ParagraphStyle(
+        "TotalFinal", parent=styles["Normal"], fontSize=12,
+        fontName="Helvetica-Bold", alignment=TA_RIGHT, spaceAfter=5,
+    )
+    story.append(Paragraph(f"TOTAL BASE: {_formato_precio_resumen(total_base)}", totales_style))
+    story.append(Paragraph(f"IVA (21%): {_formato_precio_resumen(iva)}", totales_style))
+    story.append(Paragraph("_" * 60, totales_style))
+    story.append(Paragraph(f"TOTAL FINAL: {_formato_precio_resumen(total_final)}", total_final_style))
+
+    story.append(Spacer(1, 20))
+    pie_style = ParagraphStyle("Pie", parent=styles["Normal"], fontSize=8, textColor=colors.grey, alignment=TA_CENTER)
+    story.append(Paragraph(
+        "Este documento es un resumen interno de cálculos. No es válido como presupuesto oficial.",
+        pie_style,
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.read()

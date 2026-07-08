@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from calculos import aplicar_margenes, calcular_totales
-from generador_pdf import generar_pdf_bytes
+from generador_pdf import generar_pdf_bytes, generar_resumen_pdf_bytes
 from parser_pdf import asociar_dibujos_a_partidas, extraer_dibujos
 from parser_txt import parse_txt_bytes
 
@@ -123,4 +123,20 @@ def generar_pdf(req: GenerarPdfRequest):
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="Presupuesto_{num}.pdf"'},
+    )
+
+
+@app.post("/api/generar-resumen-pdf")
+def generar_resumen_pdf(req: GenerarPdfRequest):
+    if not req.items:
+        raise HTTPException(400, "No hay partidas para generar el resumen.")
+    try:
+        pdf_bytes = generar_resumen_pdf_bytes(req.items, req.datos_cliente)
+    except Exception as e:
+        raise HTTPException(500, f"Error al generar resumen: {e}") from e
+    num = req.datos_cliente.get("num_oferta", "resumen").replace("/", "-")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="Resumen_Calculos_{num}.pdf"'},
     )
