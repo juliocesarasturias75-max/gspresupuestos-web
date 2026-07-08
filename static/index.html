@@ -48,6 +48,17 @@
         .totales-sep { color: #9ca3af; font-size: 1.1rem; }
         .botones-pdf { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
         .btn-resumen { background: #3b82f6; color: white; }
+        .btn-add { background: #8b5cf6; color: white; }
+        .btn-del { background: #ef4444; color: white; }
+        .tabla-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .inp-celda { width: 62px; padding: 4px; font-size: 0.78rem; border: 1px solid #cbd5e1; border-radius: 3px; text-align: right; }
+        tr.tabla-row { cursor: pointer; }
+        tr.tabla-row.selected { background: #dbeafe !important; }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: white; border-radius: 10px; padding: 24px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; }
+        .modal h3 { margin: 0 0 16px; color: #1e40af; }
+        .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
         .hidden { display: none; }
         @media (max-width: 900px) { .container { flex-direction: column; } .left { width: 100%; } }
     </style>
@@ -112,6 +123,10 @@
 
         <div class="panel right">
             <h2>Partidas del presupuesto</h2>
+            <div class="tabla-toolbar hidden" id="tablaToolbar">
+                <button class="btn btn-add" onclick="abrirModalPartida()">➕ Añadir partida</button>
+                <button class="btn btn-del" onclick="eliminarPartida()">🗑 Eliminar partida</button>
+            </div>
             <div id="tablaWrap">
                 <p style="color:#64748b">Carga un archivo TXT para ver las partidas.</p>
             </div>
@@ -128,9 +143,99 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="modalPartida">
+        <div class="modal">
+            <h3>➕ Nueva partida manual</h3>
+            <label>Descripción</label>
+            <textarea id="nuevaDesc" rows="3" placeholder="Ej: Puerta seccional de garaje..."></textarea>
+            <div class="row2" style="margin-top:10px">
+                <div>
+                    <label>Unidades</label>
+                    <input type="number" id="nuevaUds" value="1" min="1" step="1">
+                </div>
+                <div>
+                    <label>Coste base (€)</label>
+                    <input type="number" id="nuevaCoste" value="0" min="0" step="0.01">
+                </div>
+            </div>
+            <div class="row2" style="margin-top:8px">
+                <div>
+                    <label>Margen % (opcional)</label>
+                    <input type="number" id="nuevaMargen" placeholder="Usar global" min="0" step="0.1">
+                </div>
+                <div>
+                    <label>Colocación € (opcional)</label>
+                    <input type="number" id="nuevaColoc" placeholder="Usar global" min="0" step="0.01">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="guardarPartidaManual()">Guardar partida</button>
+                <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalPartida()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let items = [];
         let condicionesTexto = "";
+        let calculado = false;
+        let filaSeleccionada = -1;
+
+        function getMargenGlobal() { return parseFloat(document.getElementById("margenGlobal").value) || 0; }
+        function getColocGlobal() { return parseFloat(document.getElementById("colocGlobal").value) || 0; }
+
+        function getMargenItem(item) {
+            if (item.margen_individual !== null && item.margen_individual !== undefined) return item.margen_individual;
+            if (item.margen_aplicado !== null && item.margen_aplicado !== undefined) return item.margen_aplicado;
+            return getMargenGlobal();
+        }
+
+        function getColocItem(item) {
+            if (item.colocacion_individual !== null && item.colocacion_individual !== undefined) return item.colocacion_individual;
+            if (item.colocacion_aplicada !== null && item.colocacion_aplicada !== undefined) return item.colocacion_aplicada;
+            return getColocGlobal();
+        }
+
+        function recalcularLocal() {
+            if (!items.length) return null;
+            const filas = [];
+            let total_base = 0, coste_total = 0, suma_margenes = 0;
+            for (const item of items) {
+                const margen = getMargenItem(item);
+                const coloc = getColocItem(item);
+                item.margen_aplicado = margen;
+                item.colocacion_aplicada = coloc;
+                const pvp_u = (item.coste_u + coloc) * (1 + margen / 100);
+                const subtotal = pvp_u * item.uds;
+                total_base += subtotal;
+                coste_total += item.coste_u * item.uds;
+                suma_margenes += margen;
+                filas.push({
+                    pos: item.pos, uds: item.uds, desc: item.desc || "",
+                    coste_u: item.coste_u, colocacion: coloc, margen,
+                    pvp_u: Math.round(pvp_u * 100) / 100,
+                    subtotal: Math.round(subtotal * 100) / 100,
+                });
+            }
+            const iva = total_base * 0.21;
+            return {
+                filas,
+                total_base: Math.round(total_base * 100) / 100,
+                iva: Math.round(iva * 100) / 100,
+                total_final: Math.round((total_base + iva) * 100) / 100,
+                coste_total: Math.round(coste_total * 100) / 100,
+                beneficio: Math.round((total_base - coste_total) * 100) / 100,
+                margen_medio: Math.round((suma_margenes / filas.length) * 10) / 10,
+            };
+        }
+
+        function escHtml(t) {
+            return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+        }
+
+        function limpiarDesc(desc) {
+            return (desc || "").replace(/<br\/?>/gi, " ").replace(/<[^>]+>/g, "");
+        }
 
         document.getElementById("fileTxt").addEventListener("change", async (e) => {
             const file = e.target.files[0];
@@ -142,7 +247,10 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || "Error");
                 items = data.items;
+                calculado = false;
+                filaSeleccionada = -1;
                 document.getElementById("statusTxt").innerHTML = `<span class="ok">✅ ${file.name} (${data.count} partidas)</span>`;
+                document.getElementById("tablaToolbar").classList.remove("hidden");
                 renderTabla();
             } catch (err) {
                 document.getElementById("statusTxt").innerHTML = `<span class="err">❌ ${err.message}</span>`;
@@ -164,7 +272,8 @@
                 if (!res.ok) throw new Error(data.detail || "Error");
                 items = data.items;
                 document.getElementById("statusPdf").innerHTML = `<span class="ok">✅ ${data.dibujos_count} dibujos asociados</span>`;
-                renderTabla();
+                if (calculado) renderTotales(recalcularLocal());
+                else renderTabla();
             } catch (err) {
                 document.getElementById("statusPdf").innerHTML = `<span class="err">❌ ${err.message}</span>`;
             }
@@ -201,7 +310,94 @@
             const data = await res.json();
             if (!res.ok) { alert(data.detail || "Error"); return; }
             items = data.items;
+            calculado = true;
             renderTotales(data.totales);
+        }
+
+        function cambiarColoc(idx, val) {
+            items[idx].colocacion_individual = parseFloat(val) || 0;
+            if (calculado) renderTotales(recalcularLocal());
+        }
+
+        function cambiarMargen(idx, val) {
+            items[idx].margen_individual = parseFloat(val) || 0;
+            if (calculado) renderTotales(recalcularLocal());
+        }
+
+        function seleccionarFila(idx) {
+            filaSeleccionada = idx;
+            document.querySelectorAll(".tabla-row").forEach((r, i) => {
+                r.classList.toggle("selected", i === idx);
+            });
+        }
+
+        function abrirModalPartida() {
+            if (!items.length) { alert("Primero carga un TXT."); return; }
+            document.getElementById("nuevaDesc").value = "";
+            document.getElementById("nuevaUds").value = "1";
+            document.getElementById("nuevaCoste").value = "0";
+            document.getElementById("nuevaMargen").value = "";
+            document.getElementById("nuevaColoc").value = "";
+            document.getElementById("modalPartida").classList.add("active");
+        }
+
+        function cerrarModalPartida() {
+            document.getElementById("modalPartida").classList.remove("active");
+        }
+
+        function guardarPartidaManual() {
+            const descripcion = document.getElementById("nuevaDesc").value.trim();
+            if (!descripcion) { alert("La descripción no puede estar vacía."); return; }
+            const uds = parseInt(document.getElementById("nuevaUds").value, 10);
+            if (!uds || uds <= 0) { alert("Unidades inválidas."); return; }
+            const coste = parseFloat(document.getElementById("nuevaCoste").value);
+            if (isNaN(coste) || coste < 0) { alert("Coste inválido."); return; }
+            const margenTxt = document.getElementById("nuevaMargen").value.trim();
+            const colocTxt = document.getElementById("nuevaColoc").value.trim();
+            let margen_individual = null, colocacion_individual = null;
+            if (margenTxt !== "") margen_individual = parseFloat(margenTxt) || 0;
+            if (colocTxt !== "") colocacion_individual = parseFloat(colocTxt) || 0;
+
+            const nuevaPos = `Pos.${items.length + 1}`;
+            items.push({
+                pos: nuevaPos,
+                desc: descripcion,
+                coste_u: coste,
+                uds,
+                margen_individual,
+                colocacion_individual,
+                notas: "(Partida manual)",
+                dibujo_base64: null,
+            });
+            cerrarModalPartida();
+            if (calculado) {
+                renderTotales(recalcularLocal());
+            } else {
+                renderTabla();
+            }
+        }
+
+        function eliminarPartida() {
+            if (filaSeleccionada < 0 || filaSeleccionada >= items.length) {
+                alert("Selecciona una partida haciendo clic en su fila.");
+                return;
+            }
+            const item = items[filaSeleccionada];
+            const desc = limpiarDesc(item.desc).slice(0, 50);
+            if (!confirm(`¿Eliminar ${item.pos}?\n\n${desc}`)) return;
+            items.splice(filaSeleccionada, 1);
+            filaSeleccionada = -1;
+            if (!items.length) {
+                calculado = false;
+                document.getElementById("tablaToolbar").classList.add("hidden");
+                document.getElementById("tablaWrap").innerHTML = '<p style="color:#64748b">Carga un archivo TXT para ver las partidas.</p>';
+                document.getElementById("totales").classList.add("hidden");
+                document.getElementById("btnPdf").disabled = true;
+                document.getElementById("btnResumen").disabled = true;
+                return;
+            }
+            if (calculado) renderTotales(recalcularLocal());
+            else renderTabla();
         }
 
         function fmtEuro(v) { return v.toFixed(2).replace(".", ",") + " €"; }
@@ -227,22 +423,30 @@
             `;
             document.getElementById("btnPdf").disabled = false;
             document.getElementById("btnResumen").disabled = false;
-            renderTablaFilas(t.filas);
+            renderTablaFilas(t.filas, true);
         }
 
-        function renderTablaFilas(filas) {
+        function renderTablaFilas(filas, editable) {
             if (!filas) return;
             let html = `<table><thead><tr>
                 <th>Pos</th><th>Uds</th><th>Descripción</th>
                 <th>Coste</th><th>Coloc.</th><th>%</th><th>PVP</th><th>Total</th>
             </tr></thead><tbody>`;
-            for (const f of filas) {
-                const desc = (f.desc || "").replace(/<br\/?>/gi, " ").replace(/<[^>]+>/g, "");
+            for (let i = 0; i < filas.length; i++) {
+                const f = filas[i];
+                const desc = limpiarDesc(f.desc);
                 const corta = desc.length > 40 ? desc.slice(0, 40) + "..." : desc;
-                html += `<tr>
-                    <td>${f.pos}</td><td>${f.uds}</td><td>${corta}</td>
-                    <td>${f.coste_u.toFixed(2)}</td><td>${f.colocacion.toFixed(2)}</td>
-                    <td>${f.margen.toFixed(1)}%</td><td>${f.pvp_u.toFixed(2)}</td>
+                const sel = i === filaSeleccionada ? " selected" : "";
+                const colocCell = editable
+                    ? `<input class="inp-celda" type="number" min="0" step="0.01" value="${getColocItem(items[i]).toFixed(2)}" onchange="cambiarColoc(${i}, this.value)" onclick="event.stopPropagation()">`
+                    : `${f.colocacion.toFixed(2)}`;
+                const margenCell = editable
+                    ? `<input class="inp-celda" type="number" min="0" step="0.1" value="${getMargenItem(items[i]).toFixed(1)}" onchange="cambiarMargen(${i}, this.value)" onclick="event.stopPropagation()">`
+                    : `${f.margen.toFixed(1)}%`;
+                html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})">
+                    <td>${escHtml(f.pos)}</td><td>${f.uds}</td><td>${escHtml(corta)}</td>
+                    <td>${f.coste_u.toFixed(2)}</td><td>${colocCell}</td>
+                    <td>${margenCell}</td><td>${f.pvp_u.toFixed(2)}</td>
                     <td>${f.subtotal.toFixed(2)} €</td>
                 </tr>`;
             }
@@ -253,16 +457,21 @@
         function renderTabla() {
             if (!items.length) return;
             let html = `<table><thead><tr><th>Pos</th><th>Uds</th><th>Descripción</th><th>Coste u.</th></tr></thead><tbody>`;
-            for (const it of items) {
-                const desc = (it.desc || "").replace(/<br\/?>/gi, " ").replace(/<[^>]+>/g, "");
+            for (let i = 0; i < items.length; i++) {
+                const it = items[i];
+                const desc = limpiarDesc(it.desc);
                 const corta = desc.length > 50 ? desc.slice(0, 50) + "..." : desc;
-                html += `<tr><td>${it.pos}</td><td>${it.uds}</td><td>${corta}</td><td>${it.coste_u.toFixed(2)} €</td></tr>`;
+                const sel = i === filaSeleccionada ? " selected" : "";
+                html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})">
+                    <td>${escHtml(it.pos)}</td><td>${it.uds}</td><td>${escHtml(corta)}</td><td>${it.coste_u.toFixed(2)} €</td></tr>`;
             }
             html += "</tbody></table>";
             document.getElementById("tablaWrap").innerHTML = html;
-            document.getElementById("btnPdf").disabled = true;
-            document.getElementById("btnResumen").disabled = true;
-            document.getElementById("totales").classList.add("hidden");
+            if (!calculado) {
+                document.getElementById("btnPdf").disabled = true;
+                document.getElementById("btnResumen").disabled = true;
+                document.getElementById("totales").classList.add("hidden");
+            }
         }
 
         async function generarPdf() {
