@@ -138,7 +138,7 @@
             <div class="btn-row">
                 <button class="btn btn-primary" onclick="abrirModalOfertas()" style="width:100%">📂 Cargar oferta</button>
                 <button class="btn btn-success" onclick="guardarOfertaActual()" style="width:100%">💾 Guardar oferta</button>
-                <button class="btn" id="btnNuevaOferta" onclick="nuevaOferta()" style="width:100%;background:#6b7280;color:white;display:none">🆕 Nueva oferta (archivos nuevos)</button>
+                <button class="btn" id="btnNuevaOferta" onclick="nuevaOferta()" style="width:100%;background:#6b7280;color:white">🆕 Nueva oferta</button>
             </div>
             <div id="statusOferta" class="status"></div>
 
@@ -415,9 +415,7 @@
             document.getElementById("fileTxt").value = "";
             document.getElementById("filePdf").value = "";
             const activa = document.getElementById("ofertaActiva");
-            const btnNueva = document.getElementById("btnNuevaOferta");
             if (bloquear) {
-                btnNueva.style.display = "block";
                 activa.classList.remove("hidden");
                 activa.innerHTML = `📂 <strong>${escHtml(nombreOferta)}</strong> — archivos bloqueados`;
                 if (items.length) {
@@ -429,14 +427,13 @@
                         : `<span class="ok">🔒 Sin dibujos en esta oferta</span>`;
                 }
             } else {
-                btnNueva.style.display = "none";
                 activa.classList.add("hidden");
                 activa.innerHTML = "";
             }
         }
 
         function nuevaOferta() {
-            if (items.length && !confirm("¿Empezar una oferta nueva? Se perderán los cambios no guardados.")) return;
+            if (items.length && !confirm("¿Empezar una oferta nueva? Se borrará todo lo que tienes en pantalla (no se elimina de las ofertas guardadas).")) return;
             items = [];
             calculado = false;
             condicionesTexto = "";
