@@ -82,7 +82,6 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/static/js/auth.js"></script>
     <script>
         let condiciones = [];
@@ -92,6 +91,17 @@
             await cargarPerfil();
             await cargarCondiciones();
         })();
+
+        async function cargarLogoPreview() {
+            try {
+                const res = await apiFetch("/api/perfil/logo");
+                if (!res.ok) return;
+                const blob = await res.blob();
+                const img = document.getElementById("logoPreview");
+                img.src = URL.createObjectURL(blob);
+                img.style.display = "block";
+            } catch (_) {}
+        }
 
         async function cargarPerfil() {
             const res = await apiFetch("/api/perfil");
@@ -103,11 +113,7 @@
             document.getElementById("emailEmpresa").value = p.email_empresa || "";
             document.getElementById("direccion").value = p.direccion || "";
             document.getElementById("pieTexto").value = p.pie_texto || "";
-            if (p.logo_url) {
-                const img = document.getElementById("logoPreview");
-                img.src = p.logo_url;
-                img.style.display = "block";
-            }
+            await cargarLogoPreview();
         }
 
         async function guardarPerfil() {
@@ -133,12 +139,7 @@
                     fd.append("file", logo);
                     const lr = await apiFetch("/api/perfil/logo", { method: "POST", body: fd });
                     if (!lr.ok) throw new Error("Error al subir logo");
-                    const ld = await lr.json();
-                    if (ld.logo_url) {
-                        const img = document.getElementById("logoPreview");
-                        img.src = ld.logo_url;
-                        img.style.display = "block";
-                    }
+                    await cargarLogoPreview();
                 }
                 st.innerHTML = '<span class="ok">✅ Perfil guardado</span>';
             } catch (e) {

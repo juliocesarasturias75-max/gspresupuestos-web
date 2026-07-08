@@ -1,13 +1,13 @@
 const SESSION_KEY = "gsp_auth_session";
 
-window.GSP_CONFIG = { auth_enabled: false };
+window.GSP_CONFIG = { auth_enabled: true };
 
 async function cargarConfig() {
     try {
         const res = await fetch("/api/config");
         window.GSP_CONFIG = await res.json();
     } catch (_) {
-        window.GSP_CONFIG = { auth_enabled: false };
+        window.GSP_CONFIG = { auth_enabled: true };
     }
     return window.GSP_CONFIG;
 }
@@ -60,17 +60,31 @@ function cerrarSesion() {
     window.location.href = "/login";
 }
 
-function crearClienteSupabase() {
-    const cfg = window.GSP_CONFIG;
-    if (!cfg.supabase_url || !cfg.supabase_anon_key || !window.supabase) return null;
-    return window.supabase.createClient(cfg.supabase_url, cfg.supabase_anon_key);
+async function iniciarSesion(email, password) {
+    const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+        throw new Error(data.detail || "Error al iniciar sesión.");
+    }
+    const session = {
+        access_token: data.access_token,
+        user: data.user,
+    };
+    setSession(session);
+    return session;
 }
 
-async function iniciarSesion(email, password) {
-    const sb = crearClienteSupabase();
-    if (!sb) throw new Error("Supabase no configurado en el servidor.");
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    setSession(data.session);
-    return data.session;
+async function cargarUsuarioActual() {
+    const res = await apiFetch("/api/me");
+    if (!res.ok) return null;
+    return res.json();
+}
+
+function esAdmin() {
+    const session = getSession();
+    return !!session?.user?.is_admin;
 }

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin usuarios - GSPresupuestos</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; margin: 0; }
+        header { background: #1e40af; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+        header a { color: #bfdbfe; text-decoration: none; font-size: 0.85rem; margin-left: 14px; }
+        .wrap { max-width: 900px; margin: 20px auto; padding: 0 16px; }
+        .panel { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+        h2 { color: #1e40af; font-size: 1rem; margin: 0 0 14px; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; margin: 8px 0 4px; }
+        input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; }
+        .row2 { display: flex; gap: 12px; }
+        .row2 > div { flex: 1; }
+        .btn { padding: 8px 14px; border: none; border-radius: 5px; font-weight: 600; cursor: pointer; font-size: 0.82rem; }
+        .btn-primary { background: #1e40af; color: white; }
+        .btn-del { background: #ef4444; color: white; }
+        .btn-warn { background: #f59e0b; color: white; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { background: #1e40af; color: white; padding: 8px; text-align: left; }
+        td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
+        .badge { background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; }
+        .status { font-size: 0.8rem; margin-top: 8px; }
+        .ok { color: #10b981; }
+        .err { color: #dc2626; }
+    </style>
+</head>
+<body>
+    <header>
+        <strong>👤 Administración de usuarios</strong>
+        <div>
+            <a href="/">← Volver a la app</a>
+            <a href="#" onclick="cerrarSesion(); return false;">Salir</a>
+        </div>
+    </header>
+
+    <div class="wrap">
+        <div class="panel">
+            <h2>Crear nuevo usuario</h2>
+            <div class="row2">
+                <div>
+                    <label>Email (será su usuario de acceso)</label>
+                    <input type="email" id="nuevoEmail" placeholder="distribuidor@empresa.com">
+                </div>
+                <div>
+                    <label>Nombre / Empresa</label>
+                    <input type="text" id="nuevoNombre" placeholder="Distribuidor Norte">
+                </div>
+            </div>
+            <label>Contraseña inicial</label>
+            <input type="text" id="nuevoPassword" placeholder="Mínimo 6 caracteres">
+            <div style="margin-top:12px">
+                <button class="btn btn-primary" onclick="crearUsuario()">➕ Crear usuario</button>
+            </div>
+            <div id="statusCrear" class="status"></div>
+        </div>
+
+        <div class="panel">
+            <h2>Usuarios registrados</h2>
+            <div id="tablaUsuarios">Cargando...</div>
+        </div>
+    </div>
+
+    <script src="/static/js/auth.js"></script>
+    <script>
+        (async () => {
+            if (!(await requiereAuth())) return;
+            const me = await cargarUsuarioActual();
+            if (!me?.is_admin) {
+                alert("Solo administradores pueden acceder.");
+                window.location.href = "/";
+                return;
+            }
+            cargarUsuarios();
+        })();
+
+        async function cargarUsuarios() {
+            const wrap = document.getElementById("tablaUsuarios");
+            try {
+                const res = await apiFetch("/api/admin/usuarios");
+                if (!res.ok) throw new Error("Error al cargar usuarios");
+                const data = await res.json();
+                const lista = data.usuarios || [];
+                if (!lista.length) {
+                    wrap.innerHTML = "<p>No hay usuarios.</p>";
+                    return;
+                }
+                wrap.innerHTML = `<table>
+                    <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Acciones</th></tr></thead>
+                    <tbody>${lista.map(u => `<tr>
+                        <td>${esc(u.email)}</td>
+                        <td>${esc(u.nombre || "—")}</td>
+                        <td>${u.is_admin ? '<span class="badge">Admin</span>' : "Usuario"}</td>
+                        <td>
+                            <button class="btn btn-warn" onclick="resetPass('${u.id}', '${esc(u.email)}')">Reset pass</button>
+                            ${u.is_admin ? "" : `<button class="btn btn-del" onclick="borrarUsuario('${u.id}', '${esc(u.email)}')">Eliminar</button>`}
+                        </td>
+                    </tr>`).join("")}</tbody></table>`;
+            } catch (e) {
+                wrap.innerHTML = `<p class="err">${e.message}</p>`;
+            }
+        }
+
+        function esc(t) {
+            return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+        }
+
+        async function crearUsuario() {
+            const st = document.getElementById("statusCrear");
+            const body = {
+                email: document.getElementById("nuevoEmail").value.trim(),
+                nombre: document.getElementById("nuevoNombre").value.trim(),
+                password: document.getElementById("nuevoPassword").value,
+            };
+            try {
+                const res = await apiFetch("/api/admin/usuarios", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error");
+                st.innerHTML = `<span class="ok">✅ Usuario creado: ${esc(data.email)}</span>`;
+                document.getElementById("nuevoEmail").value = "";
+                document.getElementById("nuevoNombre").value = "";
+                document.getElementById("nuevoPassword").value = "";
+                cargarUsuarios();
+            } catch (e) {
+                st.innerHTML = `<span class="err">❌ ${e.message}</span>`;
+            }
+        }
+
+        async function resetPass(userId, email) {
+            const pass = prompt(`Nueva contraseña para ${email}:`);
+            if (!pass) return;
+            const res = await apiFetch(`/api/admin/usuarios/${userId}/password`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: pass }),
+            });
+            if (res.ok) alert("Contraseña actualizada.");
+            else alert((await res.json()).detail || "Error");
+        }
+
+        async function borrarUsuario(userId, email) {
+            if (!confirm(`¿Eliminar usuario ${email}?`)) return;
+            const res = await apiFetch(`/api/admin/usuarios/${userId}`, { method: "DELETE" });
+            if (res.ok) cargarUsuarios();
+            else alert((await res.json()).detail || "Error");
+        }
+    </script>
+</body>
+</html>

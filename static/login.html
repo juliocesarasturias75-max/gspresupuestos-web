@@ -31,17 +31,12 @@
         .btn:hover { background: #1d4ed8; }
         .err { color: #dc2626; font-size: 0.82rem; margin-top: 12px; min-height: 20px; }
         .info { color: #64748b; font-size: 0.78rem; margin-top: 16px; text-align: center; }
-        .dev-banner {
-            background: #fef3c7; color: #92400e; padding: 10px; border-radius: 6px;
-            font-size: 0.8rem; margin-bottom: 16px; display: none;
-        }
     </style>
 </head>
 <body>
     <div class="card">
         <h1>GSPresupuestos</h1>
         <p class="sub">Generador de presupuestos · Versión 2.0</p>
-        <div id="devBanner" class="dev-banner">Modo sin login: la app funciona sin autenticación.</div>
         <form id="loginForm">
             <label>Email</label>
             <input type="email" id="email" required autocomplete="username" placeholder="tu@empresa.com">
@@ -53,17 +48,9 @@
         <p class="info">¿No tienes cuenta? Pide acceso al administrador.</p>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/static/js/auth.js"></script>
     <script>
         (async () => {
-            const cfg = await cargarConfig();
-            if (!cfg.auth_enabled) {
-                document.getElementById("devBanner").style.display = "block";
-                document.getElementById("loginForm").style.display = "none";
-                setTimeout(() => window.location.href = "/", 1500);
-                return;
-            }
             const session = getSession();
             if (session?.access_token) {
                 window.location.href = "/";

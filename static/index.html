@@ -83,10 +83,11 @@
                 <div class="header-nav">
                     <a href="/perfil">Mi perfil</a>
                     <a href="#" onclick="abrirModalOfertas(); return false;">Mis ofertas</a>
-                    <a href="#" id="btnLogout" onclick="cerrarSesion(); return false;" style="display:none">Salir</a>
+                    <a href="/admin" id="linkAdmin" style="display:none">Admin</a>
+                    <a href="#" id="btnLogout" onclick="cerrarSesion(); return false;">Salir</a>
                 </div>
                 <div class="header-title">Generador de Presupuestos</div>
-                <div class="header-version">Versión 2.0 · <span id="userLabel">Modo local</span></div>
+                <div class="header-version">Versión 2.0 · <span id="userLabel">...</span></div>
             </div>
         </div>
     </header>
@@ -248,7 +249,6 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/static/js/auth.js"></script>
     <script>
         let items = [];
@@ -259,14 +259,15 @@
         let plantillasCond = [];
 
         (async () => {
-            const cfg = await cargarConfig();
-            if (cfg.auth_enabled) {
-                if (!(await requiereAuth())) return;
-                document.getElementById("btnLogout").style.display = "inline";
-                const session = getSession();
-                document.getElementById("userLabel").textContent = session?.user?.email || "Usuario";
-                await cargarPlantillasCond();
+            if (!(await requiereAuth())) return;
+            const me = await cargarUsuarioActual();
+            if (me) {
+                document.getElementById("userLabel").textContent = me.nombre || me.email;
+                if (me.is_admin) {
+                    document.getElementById("linkAdmin").style.display = "inline";
+                }
             }
+            await cargarPlantillasCond();
         })();
 
         async function cargarPlantillasCond() {
