@@ -52,10 +52,14 @@ def _formato_precio(valor: float) -> str:
     return f"{parte_entera},{parte_decimal} €"
 
 
+def _pie_de_datos(datos: dict) -> str:
+    return datos.get("_pie_texto") or _leer_pie()
+
+
 def _primera_pagina(canvas, doc, datos: dict):
     page_num = canvas.getPageNumber()
     canvas.saveState()
-    pie_texto = _leer_pie()
+    pie_texto = _pie_de_datos(datos)
     if pie_texto:
         canvas.setFont("Helvetica", 8)
         canvas.setFillColorRGB(0.3, 0.3, 0.3)
@@ -89,7 +93,7 @@ def _otras_paginas(canvas, doc, datos: dict):
     canvas.drawCentredString(105 * mm, y_pos, f"Cliente: {cliente}")
     canvas.drawRightString(190 * mm, y_pos, fecha)
 
-    pie_texto = _leer_pie()
+    pie_texto = _pie_de_datos(datos)
     if pie_texto:
         canvas.setFont("Helvetica", 8)
         canvas.setFillColorRGB(0.3, 0.3, 0.3)
@@ -105,12 +109,43 @@ def _otras_paginas(canvas, doc, datos: dict):
     canvas.restoreState()
 
 
+def _cargar_logo(perfil: dict | None) -> tuple[bool, object | None]:
+    perfil = perfil or {}
+    logo_bytes = perfil.get("logo_bytes")
+    if logo_bytes:
+        try:
+            return True, RLImage(BytesIO(logo_bytes), width=180 * mm, height=25 * mm, kind="proportional")
+        except Exception:
+            pass
+    logo_path = perfil.get("logo_path")
+    if logo_path and os.path.exists(logo_path):
+        try:
+            return True, RLImage(logo_path, width=180 * mm, height=25 * mm, kind="proportional")
+        except Exception:
+            pass
+    for nombre in ("LOGO_EMPRESA", "LOGO_EMPRESA.jpg", "LOGO_EMPRESA.png", "logo_empresa.jpg"):
+        ruta = _ruta_datos(nombre)
+        if os.path.exists(ruta):
+            try:
+                return True, RLImage(ruta, width=180 * mm, height=25 * mm, kind="proportional")
+            except Exception:
+                continue
+    return False, None
+
+
 def generar_pdf_bytes(
     items: list[dict],
     datos_cliente: dict,
     condiciones_texto: str = "",
+    perfil: dict | None = None,
 ) -> bytes:
     """Genera PDF y devuelve bytes."""
+    perfil = perfil or {}
+    datos_pagina = {
+        **datos_cliente,
+        "_pie_texto": perfil.get("pie_texto") or _leer_pie(),
+    }
+    nombre_empresa = perfil.get("nombre_empresa") or "VIGO Y PRADO S.L."
     buffer = BytesIO()
 
     doc = SimpleDocTemplate(buffer, pagesize=A4)
@@ -119,11 +154,11 @@ def generar_pdf_bytes(
 
     template_primera = PageTemplate(
         id="Primera", frames=[frame_primera],
-        onPage=lambda c, d: _primera_pagina(c, d, datos_cliente),
+        onPage=lambda c, d: _primera_pagina(c, d, datos_pagina),
     )
     template_otras = PageTemplate(
         id="Otras", frames=[frame_otras],
-        onPage=lambda c, d: _otras_paginas(c, d, datos_cliente),
+        onPage=lambda c, d: _otras_paginas(c, d, datos_pagina),
     )
     doc.addPageTemplates([template_primera, template_otras])
 
@@ -140,26 +175,17 @@ def generar_pdf_bytes(
         "InfoBold", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold", leading=11
     )
 
-    logo_cargado = False
-    for nombre in ("LOGO_EMPRESA", "LOGO_EMPRESA.jpg", "LOGO_EMPRESA.png", "logo_empresa.jpg"):
-        logo_path = _ruta_datos(nombre)
-        if os.path.exists(logo_path):
-            try:
-                logo_img = RLImage(logo_path, width=180 * mm, height=25 * mm, kind="proportional")
-                logo_table = Table([[logo_img]], colWidths=[180 * mm])
-                logo_table.setStyle(TableStyle([
-                    ("ALIGN", (0, 0), (0, 0), "CENTER"),
-                    ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
-                ]))
-                story.append(logo_table)
-                story.append(Spacer(1, 3))
-                logo_cargado = True
-                break
-            except Exception:
-                continue
-
-    if not logo_cargado:
-        story.append(Paragraph("<b><font size=14>VIGO Y PRADO S.L.</font></b>", style_header))
+    logo_cargado, logo_img = _cargar_logo(perfil)
+    if logo_cargado and logo_img:
+        logo_table = Table([[logo_img]], colWidths=[180 * mm])
+        logo_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (0, 0), "CENTER"),
+            ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
+        ]))
+        story.append(logo_table)
+        story.append(Spacer(1, 3))
+    else:
+        story.append(Paragraph(f"<b><font size=14>{nombre_empresa}</font></b>", style_header))
         story.append(Spacer(1, 8))
 
     num_oferta = datos_cliente.get("num_oferta") or "[NUM. OFERTA]"
@@ -297,8 +323,8 @@ def generar_pdf_bytes(
 
     doc.build(
         story,
-        onFirstPage=lambda c, d: _primera_pagina(c, d, datos_cliente),
-        onLaterPages=lambda c, d: _otras_paginas(c, d, datos_cliente),
+        onFirstPage=lambda c, d: _primera_pagina(c, d, datos_pagina),
+        onLaterPages=lambda c, d: _otras_paginas(c, d, datos_pagina),
     )
     buffer.seek(0)
     return buffer.read()
@@ -308,7 +334,7 @@ def _formato_precio_resumen(valor: float) -> str:
     return f"{valor:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def generar_resumen_pdf_bytes(items: list[dict], datos_cliente: dict) -> bytes:
+def generar_resumen_pdf_bytes(items: list[dict], datos_cliente: dict, perfil: dict | None = None) -> bytes:
     """Genera PDF de resumen interno de cálculos (sin dibujos)."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(
