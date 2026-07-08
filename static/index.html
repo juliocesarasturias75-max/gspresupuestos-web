@@ -461,6 +461,15 @@
             bloquearArchivos(true, nombreOferta || datos.nombre || "Oferta guardada");
         }
 
+        function generarNombreOfertaDefault() {
+            const num = (document.getElementById("numOferta").value || "").trim()
+                .replace(/\//g, "_").replace(/\\/g, "_");
+            const cliente = (document.getElementById("cliente").value || "").trim();
+            const ref = (document.getElementById("referencia").value || "").trim();
+            const partes = [num, cliente, ref].filter(p => p);
+            return partes.join("_") || "Nueva oferta";
+        }
+
         async function guardarOfertaActual() {
             if (!items.length) { alert("No hay partidas para guardar."); return; }
             abrirModalGuardar();
@@ -486,7 +495,7 @@
                 desc.textContent = "Pon un nombre para encontrarla después.";
                 opciones.classList.add("hidden");
                 form.classList.remove("hidden");
-                nombreInput.value = document.getElementById("cliente").value || "";
+                nombreInput.value = generarNombreOfertaDefault();
             }
             modal.classList.add("active");
         }
@@ -496,8 +505,7 @@
             document.getElementById("guardarForm").classList.remove("hidden");
             document.getElementById("guardarTitulo").textContent = "📋 Guardar como copia nueva";
             document.getElementById("guardarDesc").textContent = "La oferta original no se modificará.";
-            const base = ofertaActivaNombre || document.getElementById("cliente").value || "Nueva oferta";
-            document.getElementById("guardarNombre").value = `${base} (copia)`;
+            document.getElementById("guardarNombre").value = `${generarNombreOfertaDefault()} (copia)`;
             document.getElementById("guardarNombre").focus();
             document.getElementById("guardarNombre").select();
         }
