@@ -123,6 +123,11 @@
                 </div>
             </div>
             <button class="btn btn-primary" onclick="aplicarMargenes()" style="margin-top:10px;width:100%">Aplicar márgenes</button>
+
+            <label style="margin-top:14px">📝 Nota para todos los modelos</label>
+            <textarea id="notaGlobal" rows="3" placeholder="Esta nota aparecerá al final de cada partida en el PDF..."></textarea>
+            <button class="btn btn-primary" onclick="aplicarNotaGlobal()" style="margin-top:6px;width:100%">Aplicar nota a todos</button>
+            <div id="statusNota" class="status"></div>
         </div>
 
         <div class="panel right">
@@ -354,6 +359,25 @@
             renderTotales(data.totales);
         }
 
+        function aplicarNotaGlobal() {
+            if (!items.length) {
+                alert("No hay partidas cargadas.");
+                return;
+            }
+            const nota = document.getElementById("notaGlobal").value.trim();
+            if (!nota) {
+                alert("Escribe una nota antes de aplicar.");
+                return;
+            }
+            for (const item of items) {
+                item.nota_individual = nota;
+            }
+            document.getElementById("statusNota").innerHTML =
+                `<span class="ok">✅ Nota aplicada a ${items.length} partida(s)</span>`;
+            if (calculado) renderTotales(recalcularLocal());
+            else renderTabla();
+        }
+
         function cambiarColoc(idx, val) {
             items[idx].colocacion_individual = parseFloat(val) || 0;
             if (calculado) renderTotales(recalcularLocal());
@@ -380,6 +404,12 @@
 
         function tieneNotas(item) {
             return (item.notas && item.notas.trim()) || (item.nota_individual && item.nota_individual.trim());
+        }
+
+        function iconoNota(item) {
+            if (!tieneNotas(item)) return "";
+            const txt = item.nota_individual ? "Nota en PDF" : "Notas";
+            return `<span class="nota-icon" title="${escHtml(txt)}">📝</span>`;
         }
 
         function abrirModalEditar(idx) {
@@ -548,7 +578,7 @@
                 const costeCell = editable
                     ? `<input class="inp-celda" type="number" min="0" step="0.01" value="${items[i].coste_u.toFixed(2)}" onchange="cambiarCoste(${i}, this.value)" onclick="event.stopPropagation()">`
                     : `${f.coste_u.toFixed(2)}`;
-                const notaIcon = tieneNotas(items[i]) ? '<span class="nota-icon" title="Tiene notas">📝</span>' : '';
+                const notaIcon = iconoNota(items[i]);
                 html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})" ondblclick="abrirModalEditar(${i})">
                     <td>${escHtml(f.pos)}</td><td>${udsCell}</td><td>${escHtml(corta)}${notaIcon}</td>
                     <td>${costeCell}</td><td>${colocCell}</td>
@@ -568,7 +598,7 @@
                 const desc = limpiarDesc(it.desc);
                 const corta = desc.length > 50 ? desc.slice(0, 50) + "..." : desc;
                 const sel = i === filaSeleccionada ? " selected" : "";
-                const notaIcon = tieneNotas(it) ? '<span class="nota-icon" title="Tiene notas">📝</span>' : '';
+                const notaIcon = iconoNota(it);
                 html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})" ondblclick="abrirModalEditar(${i})">
                     <td>${escHtml(it.pos)}</td><td>${it.uds}</td><td>${escHtml(corta)}${notaIcon}</td><td>${it.coste_u.toFixed(2)} €</td></tr>`;
             }
