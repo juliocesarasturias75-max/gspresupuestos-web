@@ -31,6 +31,9 @@
         .btn-primary { background: #1e40af; color: white; }
         .btn-success { background: #10b981; color: white; }
         .btn-file { background: #e0f2fe; color: #1e40af; }
+        .btn-file:disabled, .btn-file.locked { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; opacity: 0.7; }
+        .oferta-activa { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 0.78rem; }
+        .btn-row { display: flex; flex-direction: column; gap: 6px; }
         .status { font-size: 0.78rem; margin-top: 4px; }
         .ok { color: #10b981; }
         .err { color: #dc2626; }
@@ -96,11 +99,11 @@
         <div class="panel left">
             <h2>1. Archivos</h2>
             <input type="file" id="fileTxt" accept=".txt" class="hidden">
-            <button class="btn btn-file" onclick="document.getElementById('fileTxt').click()">Subir TXT</button>
+            <button class="btn btn-file" id="btnSubirTxt" onclick="intentarSubirTxt()">Subir TXT</button>
             <div id="statusTxt" class="status">Esperando TXT...</div>
 
             <input type="file" id="filePdf" accept=".pdf" class="hidden">
-            <button class="btn btn-file" onclick="document.getElementById('filePdf').click()">Subir PDF (dibujos)</button>
+            <button class="btn btn-file" id="btnSubirPdf" onclick="intentarSubirPdf()">Subir PDF (dibujos)</button>
             <div id="statusPdf" class="status">Opcional</div>
 
             <input type="file" id="fileCond" accept=".txt" class="hidden">
@@ -113,7 +116,12 @@
             </select>
 
             <h2 style="margin-top:16px">Ofertas guardadas</h2>
-            <button class="btn btn-primary" onclick="guardarOfertaActual()" style="width:100%">💾 Guardar oferta</button>
+            <div id="ofertaActiva" class="oferta-activa hidden"></div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="abrirModalOfertas()" style="width:100%">📂 Cargar oferta</button>
+                <button class="btn btn-success" onclick="guardarOfertaActual()" style="width:100%">💾 Guardar oferta</button>
+                <button class="btn" id="btnNuevaOferta" onclick="nuevaOferta()" style="width:100%;background:#6b7280;color:white;display:none">🆕 Nueva oferta (archivos nuevos)</button>
+            </div>
             <div id="statusOferta" class="status"></div>
 
             <h2 style="margin-top:16px">2. Cliente</h2>
@@ -178,6 +186,25 @@
             <div id="listaOfertas" style="max-height:320px;overflow-y:auto"></div>
             <div class="modal-actions">
                 <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalOfertas()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalGuardar">
+        <div class="modal" style="max-width:440px">
+            <h3 id="guardarTitulo">💾 Guardar oferta</h3>
+            <p id="guardarDesc" style="font-size:0.82rem;color:#64748b;margin:0 0 12px"></p>
+            <div id="guardarOpciones" class="hidden">
+                <button class="btn btn-success" id="btnActualizarOferta" style="width:100%;margin-bottom:8px" onclick="ejecutarGuardar(true)">📝 Actualizar oferta actual</button>
+                <button class="btn btn-primary" style="width:100%" onclick="mostrarFormNuevaCopia()">📋 Guardar como copia nueva</button>
+            </div>
+            <div id="guardarForm">
+                <label>Nombre de la oferta</label>
+                <input type="text" id="guardarNombre" placeholder="Ej: García - Puerta garaje">
+                <div class="modal-actions">
+                    <button class="btn btn-success" onclick="ejecutarGuardar(false)">Guardar</button>
+                    <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalGuardar()">Cancelar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -257,6 +284,92 @@
         let filaSeleccionada = -1;
         let ofertaActualId = null;
         let plantillasCond = [];
+        let archivosBloqueados = false;
+        let ofertaActivaNombre = "";
+
+        function intentarSubirTxt() {
+            if (!verificarArchivosPermitidos()) return;
+            document.getElementById("fileTxt").click();
+        }
+
+        function intentarSubirPdf() {
+            if (!verificarArchivosPermitidos()) return;
+            document.getElementById("filePdf").click();
+        }
+
+        function verificarArchivosPermitidos() {
+            if (archivosBloqueados) {
+                alert("Has cargado una oferta guardada. TXT y PDF están bloqueados para evitar conflictos.\n\nPulsa «Nueva oferta» si quieres empezar con archivos nuevos.");
+                return false;
+            }
+            return true;
+        }
+
+        function contarDibujos() {
+            return items.filter(i => i.dibujo_base64).length;
+        }
+
+        function bloquearArchivos(bloquear, nombreOferta) {
+            archivosBloqueados = bloquear;
+            ofertaActivaNombre = bloquear ? (nombreOferta || "") : "";
+            const btnTxt = document.getElementById("btnSubirTxt");
+            const btnPdf = document.getElementById("btnSubirPdf");
+            btnTxt.disabled = bloquear;
+            btnPdf.disabled = bloquear;
+            btnTxt.classList.toggle("locked", bloquear);
+            btnPdf.classList.toggle("locked", bloquear);
+            document.getElementById("fileTxt").value = "";
+            document.getElementById("filePdf").value = "";
+            const activa = document.getElementById("ofertaActiva");
+            const btnNueva = document.getElementById("btnNuevaOferta");
+            if (bloquear) {
+                btnNueva.style.display = "block";
+                activa.classList.remove("hidden");
+                activa.innerHTML = `📂 <strong>${escHtml(nombreOferta)}</strong> — archivos bloqueados`;
+                if (items.length) {
+                    document.getElementById("statusTxt").innerHTML =
+                        `<span class="ok">🔒 ${items.length} partidas (oferta guardada)</span>`;
+                    const n = contarDibujos();
+                    document.getElementById("statusPdf").innerHTML = n > 0
+                        ? `<span class="ok">🔒 ${n} dibujos incluidos</span>`
+                        : `<span class="ok">🔒 Sin dibujos en esta oferta</span>`;
+                }
+            } else {
+                btnNueva.style.display = "none";
+                activa.classList.add("hidden");
+                activa.innerHTML = "";
+            }
+        }
+
+        function nuevaOferta() {
+            if (items.length && !confirm("¿Empezar una oferta nueva? Se perderán los cambios no guardados.")) return;
+            items = [];
+            calculado = false;
+            condicionesTexto = "";
+            filaSeleccionada = -1;
+            ofertaActualId = null;
+            bloquearArchivos(false);
+            document.getElementById("numOferta").value = "";
+            document.getElementById("cliente").value = "";
+            document.getElementById("direccion").value = "";
+            document.getElementById("telefono").value = "";
+            document.getElementById("email").value = "";
+            document.getElementById("referencia").value = "";
+            document.getElementById("margenGlobal").value = "20";
+            document.getElementById("colocGlobal").value = "50";
+            document.getElementById("notaGlobal").value = "";
+            document.getElementById("selCondiciones").value = "";
+            document.getElementById("statusTxt").textContent = "Esperando TXT...";
+            document.getElementById("statusPdf").textContent = "Opcional";
+            document.getElementById("statusCond").textContent = "Opcional";
+            document.getElementById("statusOferta").innerHTML = "";
+            document.getElementById("statusNota").innerHTML = "";
+            document.getElementById("tablaWrap").innerHTML = '<p style="color:#64748b">Carga un archivo TXT para ver las partidas.</p>';
+            document.getElementById("tablaToolbar").classList.add("hidden");
+            document.getElementById("totales").classList.add("hidden");
+            document.getElementById("btnPdf").disabled = true;
+            document.getElementById("btnResumen").disabled = true;
+        }
 
         (async () => {
             if (!(await requiereAuth())) return;
@@ -317,7 +430,7 @@
             };
         }
 
-        function restaurarOferta(datos) {
+        function restaurarOferta(datos, nombreOferta) {
             const d = datos.datos || datos;
             items = d.items || [];
             calculado = !!d.calculado;
@@ -333,6 +446,9 @@
             document.getElementById("telefono").value = c.telefono || "";
             document.getElementById("email").value = c.email || "";
             document.getElementById("referencia").value = c.referencia || "";
+            if (condicionesTexto) {
+                document.getElementById("statusCond").innerHTML = `<span class="ok">✅ Condiciones de la oferta cargada</span>`;
+            }
             if (items.length) {
                 document.getElementById("tablaToolbar").classList.remove("hidden");
                 if (calculado) {
@@ -342,13 +458,73 @@
                     renderTabla();
                 }
             }
+            bloquearArchivos(true, nombreOferta || datos.nombre || "Oferta guardada");
         }
 
         async function guardarOfertaActual() {
             if (!items.length) { alert("No hay partidas para guardar."); return; }
+            abrirModalGuardar();
+        }
+
+        function abrirModalGuardar() {
+            const modal = document.getElementById("modalGuardar");
+            const opciones = document.getElementById("guardarOpciones");
+            const form = document.getElementById("guardarForm");
+            const titulo = document.getElementById("guardarTitulo");
+            const desc = document.getElementById("guardarDesc");
+            const nombreInput = document.getElementById("guardarNombre");
+            const btnActualizar = document.getElementById("btnActualizarOferta");
+
+            if (ofertaActualId && ofertaActivaNombre) {
+                titulo.textContent = "💾 Guardar cambios";
+                desc.textContent = `Estás editando: «${ofertaActivaNombre}». ¿Qué quieres hacer?`;
+                opciones.classList.remove("hidden");
+                form.classList.add("hidden");
+                btnActualizar.textContent = `📝 Actualizar «${ofertaActivaNombre}»`;
+            } else {
+                titulo.textContent = "💾 Guardar oferta nueva";
+                desc.textContent = "Pon un nombre para encontrarla después.";
+                opciones.classList.add("hidden");
+                form.classList.remove("hidden");
+                nombreInput.value = document.getElementById("cliente").value || "";
+            }
+            modal.classList.add("active");
+        }
+
+        function mostrarFormNuevaCopia() {
+            document.getElementById("guardarOpciones").classList.add("hidden");
+            document.getElementById("guardarForm").classList.remove("hidden");
+            document.getElementById("guardarTitulo").textContent = "📋 Guardar como copia nueva";
+            document.getElementById("guardarDesc").textContent = "La oferta original no se modificará.";
+            const base = ofertaActivaNombre || document.getElementById("cliente").value || "Nueva oferta";
+            document.getElementById("guardarNombre").value = `${base} (copia)`;
+            document.getElementById("guardarNombre").focus();
+            document.getElementById("guardarNombre").select();
+        }
+
+        function cerrarModalGuardar() {
+            document.getElementById("modalGuardar").classList.remove("active");
+        }
+
+        async function ejecutarGuardar(actualizar) {
             const st = document.getElementById("statusOferta");
-            const nombre = prompt("Nombre para esta oferta:", document.getElementById("cliente").value || "Nueva oferta");
-            if (!nombre) return;
+            let nombre = ofertaActivaNombre;
+            let id = ofertaActualId;
+            let method = "POST";
+            let url = "/api/ofertas";
+
+            if (actualizar && ofertaActualId) {
+                nombre = ofertaActivaNombre;
+                url = `/api/ofertas/${ofertaActualId}`;
+                method = "PUT";
+            } else {
+                nombre = document.getElementById("guardarNombre").value.trim();
+                if (!nombre) { alert("Escribe un nombre para la oferta."); return; }
+                id = null;
+                method = "POST";
+                url = "/api/ofertas";
+            }
+
             const body = {
                 nombre,
                 num_oferta: document.getElementById("numOferta").value,
@@ -356,8 +532,6 @@
                 datos: estadoOferta(),
             };
             try {
-                const url = ofertaActualId ? `/api/ofertas/${ofertaActualId}` : "/api/ofertas";
-                const method = ofertaActualId ? "PUT" : "POST";
                 const res = await apiFetch(url, {
                     method,
                     headers: { "Content-Type": "application/json" },
@@ -366,7 +540,13 @@
                 if (!res.ok) throw new Error((await res.json()).detail || "Error al guardar");
                 const saved = await res.json();
                 ofertaActualId = saved.id;
-                st.innerHTML = `<span class="ok">✅ Oferta guardada: ${nombre}</span>`;
+                ofertaActivaNombre = nombre;
+                if (archivosBloqueados) {
+                    bloquearArchivos(true, nombre);
+                }
+                cerrarModalGuardar();
+                const msg = actualizar ? "actualizada" : "guardada";
+                st.innerHTML = `<span class="ok">✅ Oferta ${msg}: ${escHtml(nombre)}</span>`;
             } catch (e) {
                 st.innerHTML = `<span class="err">❌ ${e.message}</span>`;
             }
@@ -414,7 +594,7 @@
                 if (!res.ok) throw new Error("Oferta no encontrada");
                 const oferta = await res.json();
                 ofertaActualId = oferta.id;
-                restaurarOferta(oferta);
+                restaurarOferta(oferta, oferta.nombre);
                 cerrarModalOfertas();
                 document.getElementById("statusOferta").innerHTML =
                     `<span class="ok">✅ Oferta cargada: ${escHtml(oferta.nombre)}</span>`;
@@ -488,6 +668,7 @@
         document.getElementById("fileTxt").addEventListener("change", async (e) => {
             const file = e.target.files[0];
             if (!file) return;
+            if (!verificarArchivosPermitidos()) { e.target.value = ""; return; }
             const fd = new FormData();
             fd.append("file", file);
             try {
@@ -497,6 +678,8 @@
                 items = data.items;
                 calculado = false;
                 filaSeleccionada = -1;
+                ofertaActualId = null;
+                bloquearArchivos(false);
                 document.getElementById("statusTxt").innerHTML = `<span class="ok">✅ ${file.name} (${data.count} partidas)</span>`;
                 document.getElementById("tablaToolbar").classList.remove("hidden");
                 renderTabla();
@@ -511,6 +694,7 @@
                 alert("Primero carga el TXT con las partidas.");
                 return;
             }
+            if (!verificarArchivosPermitidos()) { e.target.value = ""; return; }
             const fd = new FormData();
             fd.append("file", file);
             fd.append("items_json", JSON.stringify(items));
