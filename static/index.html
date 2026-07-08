@@ -8,10 +8,10 @@
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; margin: 0; }
         header { background: #1e40af; color: white; padding: 6px 20px; }
-        .header-inner { display: flex; justify-content: flex-start; align-items: center; max-width: 1400px; margin: 0 auto; min-height: 48px; }
-        .header-brand { display: flex; align-items: center; gap: 10px; }
+        .header-inner { display: flex; justify-content: space-between; align-items: center; max-width: 1400px; margin: 0 auto; min-height: 48px; }
+        .header-brand { display: flex; align-items: center; }
         .header-logo { height: 36px; width: auto; filter: brightness(0) invert(1); }
-        .header-text { text-align: left; line-height: 1.25; }
+        .header-text { text-align: right; line-height: 1.25; }
         .header-title { font-size: 0.82rem; font-weight: 700; }
         .header-version { font-size: 0.65rem; color: #bfdbfe; }
         .container { display: flex; gap: 14px; padding: 14px; max-width: 1400px; margin: 0 auto; }
@@ -34,9 +34,20 @@
         th { background: #1e40af; color: white; padding: 8px 6px; text-align: left; }
         td { padding: 7px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
         tr:hover { background: #f8fafc; }
-        .totales { background: #dbeafe; padding: 12px; border-radius: 6px; margin-top: 12px; display: flex; flex-wrap: wrap; gap: 16px; }
-        .totales div { font-size: 0.85rem; }
-        .totales strong { color: #1e40af; }
+        .totales { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 14px 16px; margin-top: 14px; }
+        .totales-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+        .totales-row:last-child { margin-bottom: 0; }
+        .totales-item { font-size: 0.85rem; white-space: nowrap; }
+        .totales-item strong { color: #1e40af; }
+        .totales-item.final strong { font-size: 0.95rem; }
+        .totales-item.final span { font-size: 1rem; font-weight: 700; color: #1e40af; }
+        .totales-item.secondary strong { color: #6b7280; }
+        .totales-item.secondary span { color: #6b7280; }
+        .totales-item.beneficio strong, .totales-item.beneficio span { color: #059669; }
+        .totales-item.margen strong, .totales-item.margen span { color: #3b82f6; }
+        .totales-sep { color: #9ca3af; font-size: 1.1rem; }
+        .botones-pdf { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+        .btn-resumen { background: #3b82f6; color: white; }
         .hidden { display: none; }
         @media (max-width: 900px) { .container { flex-direction: column; } .left { width: 100%; } }
     </style>
@@ -48,10 +59,10 @@
                 <img src="/static/logo_secopvc.gif" alt="SECO PVC" class="header-logo"
                      onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                 <div class="header-logo-fallback" style="display:none; font-size:1rem; font-weight:800;">SECOPVC</div>
-                <div class="header-text">
-                    <div class="header-title">Generador de Presupuestos</div>
-                    <div class="header-version">Versión 2.0</div>
-                </div>
+            </div>
+            <div class="header-text">
+                <div class="header-title">Generador de Presupuestos</div>
+                <div class="header-version">Versión 2.0</div>
             </div>
         </div>
     </header>
@@ -105,9 +116,14 @@
                 <p style="color:#64748b">Carga un archivo TXT para ver las partidas.</p>
             </div>
             <div id="totales" class="totales hidden"></div>
-            <button class="btn btn-success" onclick="generarPdf()" style="margin-top:14px" id="btnPdf" disabled>
-                Generar PDF
-            </button>
+            <div class="botones-pdf">
+                <button class="btn btn-success" onclick="generarPdf()" id="btnPdf" disabled>
+                    Generar PDF
+                </button>
+                <button class="btn btn-resumen" onclick="generarResumenPdf()" id="btnResumen" disabled>
+                    Resumen Cálculos (PDF interno)
+                </button>
+            </div>
             <div id="statusPdfGen" class="status"></div>
         </div>
     </div>
@@ -188,16 +204,29 @@
             renderTotales(data.totales);
         }
 
+        function fmtEuro(v) { return v.toFixed(2).replace(".", ",") + " €"; }
+
         function renderTotales(t) {
             const el = document.getElementById("totales");
             el.classList.remove("hidden");
             el.innerHTML = `
-                <div><strong>Base:</strong> ${t.total_base.toFixed(2)} €</div>
-                <div><strong>IVA:</strong> ${t.iva.toFixed(2)} €</div>
-                <div><strong>Total:</strong> ${t.total_final.toFixed(2)} €</div>
-                <div><strong>Beneficio:</strong> ${t.beneficio.toFixed(2)} €</div>
+                <div class="totales-row">
+                    <div class="totales-item"><strong>Total Base:</strong> <span>${fmtEuro(t.total_base)}</span></div>
+                    <span class="totales-sep">│</span>
+                    <div class="totales-item"><strong>IVA (21%):</strong> <span>${fmtEuro(t.iva)}</span></div>
+                    <span class="totales-sep">│</span>
+                    <div class="totales-item final"><strong>TOTAL FINAL:</strong> <span>${fmtEuro(t.total_final)}</span></div>
+                </div>
+                <div class="totales-row">
+                    <div class="totales-item secondary"><strong>Coste Total:</strong> <span>${fmtEuro(t.coste_total)}</span></div>
+                    <span class="totales-sep">│</span>
+                    <div class="totales-item beneficio"><strong>Beneficio:</strong> <span>${fmtEuro(t.beneficio)}</span></div>
+                    <span class="totales-sep">│</span>
+                    <div class="totales-item margen"><strong>Margen Medio:</strong> <span>${t.margen_medio.toFixed(1)}%</span></div>
+                </div>
             `;
             document.getElementById("btnPdf").disabled = false;
+            document.getElementById("btnResumen").disabled = false;
             renderTablaFilas(t.filas);
         }
 
@@ -232,6 +261,7 @@
             html += "</tbody></table>";
             document.getElementById("tablaWrap").innerHTML = html;
             document.getElementById("btnPdf").disabled = true;
+            document.getElementById("btnResumen").disabled = true;
             document.getElementById("totales").classList.add("hidden");
         }
 
@@ -268,6 +298,39 @@
                 a.click();
                 URL.revokeObjectURL(url);
                 document.getElementById("statusPdfGen").innerHTML = `<span class="ok">✅ PDF descargado</span>`;
+            } catch (err) {
+                document.getElementById("statusPdfGen").innerHTML = `<span class="err">❌ ${err.message}</span>`;
+            }
+        }
+        async function generarResumenPdf() {
+            if (!items.length) { alert("No hay partidas."); return; }
+            const body = {
+                items,
+                datos_cliente: {
+                    num_oferta: document.getElementById("numOferta").value,
+                    cliente: document.getElementById("cliente").value,
+                },
+            };
+            document.getElementById("statusPdfGen").textContent = "Generando resumen interno...";
+            try {
+                const res = await fetch("/api/generar-resumen-pdf", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || "Error al generar resumen");
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                const num = document.getElementById("numOferta").value || "resumen";
+                a.download = `Resumen_Calculos_${num}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+                document.getElementById("statusPdfGen").innerHTML = `<span class="ok">✅ Resumen interno descargado</span>`;
             } catch (err) {
                 document.getElementById("statusPdfGen").innerHTML = `<span class="err">❌ ${err.message}</span>`;
             }
