@@ -27,6 +27,7 @@ from fichas import (
 )
 from pdf_merge import merge_pdfs
 from calculos import aplicar_margenes, calcular_totales
+from validaciones import validar_items
 from generador_pdf import generar_pdf_bytes, generar_resumen_pdf_bytes
 from parser_pdf import asociar_dibujos_a_partidas, extraer_dibujos
 from parser_txt import parse_txt_bytes
@@ -395,6 +396,7 @@ def generar_pdf_paquete(
 ):
     if not req.items:
         raise HTTPException(400, "No hay partidas para generar el PDF.")
+    _bloquear_si_errores_presupuesto(req.items, req.datos_cliente)
     perfil = _perfil_pdf(user_id)
     try:
         pdf_presupuesto = generar_pdf_bytes(
@@ -492,6 +494,18 @@ def calcular(req: CalcularRequest):
     return {"items": items, "totales": totales}
 
 
+def _bloquear_si_errores_presupuesto(items: list[dict], datos_cliente: dict | None = None):
+    resultado = validar_items(
+        items,
+        datos_cliente=datos_cliente,
+        requiere_cliente=True,
+    )
+    if not resultado["ok"]:
+        detalle = "\n".join(e["mensaje"] for e in resultado["errores"])
+        raise HTTPException(400, f"Errores en el presupuesto:\n{detalle}")
+    return resultado
+
+
 @app.post("/api/generar-pdf")
 def generar_pdf(
     req: GenerarPdfRequest,
@@ -499,6 +513,7 @@ def generar_pdf(
 ):
     if not req.items:
         raise HTTPException(400, "No hay partidas para generar el PDF.")
+    _bloquear_si_errores_presupuesto(req.items, req.datos_cliente)
     perfil = _perfil_pdf(user_id)
     try:
         pdf_bytes = generar_pdf_bytes(
@@ -524,6 +539,7 @@ def generar_resumen_pdf(
 ):
     if not req.items:
         raise HTTPException(400, "No hay partidas para generar el resumen.")
+    _bloquear_si_errores_presupuesto(req.items, req.datos_cliente)
     perfil = _perfil_pdf(user_id) if user_id else None
     try:
         pdf_bytes = generar_resumen_pdf_bytes(req.items, req.datos_cliente, perfil=perfil)
