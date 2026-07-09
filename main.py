@@ -119,7 +119,12 @@ def _perfil_pdf(user_id: str) -> dict:
     perfil = get_perfil(user_id)
     logo_bytes = get_logo_bytes(user_id)
     return {
+        "es_usuario": True,
         "nombre_empresa": perfil.get("nombre_empresa") or "",
+        "cif": perfil.get("cif") or "",
+        "direccion": perfil.get("direccion") or "",
+        "telefono": perfil.get("telefono") or "",
+        "email_empresa": perfil.get("email_empresa") or "",
         "pie_texto": perfil.get("pie_texto") or "",
         "logo_bytes": logo_bytes,
         "logo_path": perfil.get("logo_path"),
@@ -377,11 +382,11 @@ def calcular(req: CalcularRequest):
 @app.post("/api/generar-pdf")
 def generar_pdf(
     req: GenerarPdfRequest,
-    user_id: str | None = Depends(obtener_user_id_opcional),
+    user_id: str = Depends(obtener_user_id),
 ):
     if not req.items:
         raise HTTPException(400, "No hay partidas para generar el PDF.")
-    perfil = _perfil_pdf(user_id) if user_id else None
+    perfil = _perfil_pdf(user_id)
     try:
         pdf_bytes = generar_pdf_bytes(
             req.items,

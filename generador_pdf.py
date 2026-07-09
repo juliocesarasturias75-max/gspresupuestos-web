@@ -111,26 +111,86 @@ def _otras_paginas(canvas, doc, datos: dict):
 
 def _cargar_logo(perfil: dict | None) -> tuple[bool, object | None]:
     perfil = perfil or {}
+    solo_usuario = bool(perfil.get("es_usuario"))
     logo_bytes = perfil.get("logo_bytes")
     if logo_bytes:
         try:
-            return True, RLImage(BytesIO(logo_bytes), width=180 * mm, height=25 * mm, kind="proportional")
+            return True, RLImage(BytesIO(logo_bytes), width=180 * mm, height=30 * mm, kind="proportional")
         except Exception:
             pass
     logo_path = perfil.get("logo_path")
     if logo_path and os.path.exists(logo_path):
         try:
-            return True, RLImage(logo_path, width=180 * mm, height=25 * mm, kind="proportional")
+            return True, RLImage(logo_path, width=180 * mm, height=30 * mm, kind="proportional")
         except Exception:
             pass
+    if solo_usuario:
+        return False, None
     for nombre in ("LOGO_EMPRESA", "LOGO_EMPRESA.jpg", "LOGO_EMPRESA.png", "logo_empresa.jpg"):
         ruta = _ruta_datos(nombre)
         if os.path.exists(ruta):
             try:
-                return True, RLImage(ruta, width=180 * mm, height=25 * mm, kind="proportional")
+                return True, RLImage(ruta, width=180 * mm, height=30 * mm, kind="proportional")
             except Exception:
                 continue
     return False, None
+
+
+def _pie_texto_perfil(perfil: dict | None) -> str:
+    perfil = perfil or {}
+    if perfil.get("es_usuario"):
+        return (perfil.get("pie_texto") or "").strip()
+    return (perfil.get("pie_texto") or "").strip() or _leer_pie()
+
+
+def _lineas_empresa(perfil: dict) -> list[str]:
+    lineas = []
+    nombre = (perfil.get("nombre_empresa") or "").strip()
+    cif = (perfil.get("cif") or "").strip()
+    if nombre:
+        lineas.append(f"{nombre} - {cif}" if cif else nombre)
+    elif cif:
+        lineas.append(cif)
+    direccion = (perfil.get("direccion") or "").strip()
+    if direccion:
+        lineas.append(direccion)
+    email = (perfil.get("email_empresa") or "").strip()
+    telefono = (perfil.get("telefono") or "").strip()
+    contacto = []
+    if email:
+        contacto.append(email)
+    if telefono:
+        contacto.append(f"Tlf: {telefono}")
+    if contacto:
+        lineas.append(" · ".join(contacto))
+    return lineas
+
+
+def _agregar_encabezado(story, perfil: dict, style_header, style_empresa):
+    perfil = perfil or {}
+    logo_cargado, logo_img = _cargar_logo(perfil)
+    if logo_cargado and logo_img:
+        logo_table = Table([[logo_img]], colWidths=[180 * mm])
+        logo_table.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (0, 0), "CENTER"),
+            ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
+        ]))
+        story.append(logo_table)
+        story.append(Spacer(1, 4))
+    elif perfil.get("es_usuario"):
+        nombre = (perfil.get("nombre_empresa") or "").strip() or "Mi empresa"
+        story.append(Paragraph(f"<b><font size=14>{nombre}</font></b>", style_header))
+        story.append(Spacer(1, 6))
+    else:
+        nombre = perfil.get("nombre_empresa") or "VIGO Y PRADO S.L."
+        story.append(Paragraph(f"<b><font size=14>{nombre}</font></b>", style_header))
+        story.append(Spacer(1, 8))
+
+    if perfil.get("es_usuario"):
+        for linea in _lineas_empresa(perfil):
+            story.append(Paragraph(linea, style_empresa))
+        if _lineas_empresa(perfil):
+            story.append(Spacer(1, 6))
 
 
 def generar_pdf_bytes(
@@ -141,11 +201,8 @@ def generar_pdf_bytes(
 ) -> bytes:
     """Genera PDF y devuelve bytes."""
     perfil = perfil or {}
-    datos_pagina = {
-        **datos_cliente,
-        "_pie_texto": perfil.get("pie_texto") or _leer_pie(),
-    }
-    nombre_empresa = perfil.get("nombre_empresa") or "VIGO Y PRADO S.L."
+    pie = _pie_texto_perfil(perfil)
+    datos_pagina = {**datos_cliente, "_pie_texto": pie}
     buffer = BytesIO()
 
     doc = SimpleDocTemplate(buffer, pagesize=A4)
@@ -174,19 +231,12 @@ def generar_pdf_bytes(
     style_info_bold = ParagraphStyle(
         "InfoBold", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold", leading=11
     )
+    style_empresa = ParagraphStyle(
+        "Empresa", parent=styles["Normal"], fontSize=8, alignment=TA_CENTER, leading=10,
+        textColor=colors.HexColor("#374151"),
+    )
 
-    logo_cargado, logo_img = _cargar_logo(perfil)
-    if logo_cargado and logo_img:
-        logo_table = Table([[logo_img]], colWidths=[180 * mm])
-        logo_table.setStyle(TableStyle([
-            ("ALIGN", (0, 0), (0, 0), "CENTER"),
-            ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
-        ]))
-        story.append(logo_table)
-        story.append(Spacer(1, 3))
-    else:
-        story.append(Paragraph(f"<b><font size=14>{nombre_empresa}</font></b>", style_header))
-        story.append(Spacer(1, 8))
+    _agregar_encabezado(story, perfil, style_header, style_empresa)
 
     num_oferta = datos_cliente.get("num_oferta") or "[NUM. OFERTA]"
     fecha = datetime.datetime.now().strftime("%d.%m.%Y")
