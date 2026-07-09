@@ -76,6 +76,15 @@
         .ficha-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
         .ficha-item label { margin: 0; font-weight: 500; cursor: pointer; flex: 1; }
         .cat-title { font-size: 0.78rem; font-weight: 700; color: #1e40af; margin: 12px 0 6px; }
+        .banner-validaciones {
+            background: #fff7ed; border: 2px solid #f59e0b; border-radius: 8px;
+            padding: 12px 14px; margin-top: 12px; font-size: 0.78rem; line-height: 1.45;
+        }
+        .banner-validaciones.errores { background: #fef2f2; border-color: #ef4444; }
+        .banner-validaciones ul { margin: 6px 0 0 18px; padding: 0; }
+        .banner-validaciones li { margin-bottom: 4px; }
+        tr.tabla-row.fila-alerta { background: #fff7ed !important; }
+        tr.tabla-row.fila-error { background: #fee2e2 !important; }
         .btn-add { background: #8b5cf6; color: white; }
         .btn-del { background: #ef4444; color: white; }
         .btn-edit { background: #0ea5e9; color: white; }
@@ -191,6 +200,7 @@
                 <p style="color:#64748b">Carga un archivo TXT para ver las partidas.</p>
             </div>
             <div id="totales" class="totales hidden"></div>
+            <div id="bannerValidaciones" class="banner-validaciones hidden"></div>
             <div class="botones-pdf">
                 <button class="btn btn-success" onclick="generarPdf()" id="btnPdf" disabled>
                     Generar PDF
@@ -351,6 +361,7 @@
     </div>
 
     <script src="/static/js/auth.js"></script>
+    <script src="/static/js/validaciones.js"></script>
     <script>
         let items = [];
         let condicionesTexto = "";
@@ -362,6 +373,60 @@
         let ofertaActivaNombre = "";
         let usuarioActual = null;
         let desajusteInfo = null;
+        let ultimaValidacion = null;
+
+        function optsValidacion(requiereCliente = false) {
+            return {
+                margenGlobal: getMargenGlobal(),
+                colocGlobal: getColocGlobal(),
+                datosCliente: {
+                    num_oferta: document.getElementById("numOferta").value,
+                    cliente: document.getElementById("cliente").value,
+                },
+                requiereCliente,
+            };
+        }
+
+        function actualizarPanelValidaciones() {
+            const el = document.getElementById("bannerValidaciones");
+            if (!calculado || !items.length) {
+                el.classList.add("hidden");
+                el.innerHTML = "";
+                ultimaValidacion = null;
+                return;
+            }
+            ultimaValidacion = validarPresupuesto(items, optsValidacion(false));
+            if (!ultimaValidacion.errores.length && !ultimaValidacion.avisos.length) {
+                el.classList.add("hidden");
+                el.innerHTML = "";
+                return;
+            }
+            el.classList.remove("hidden");
+            el.classList.toggle("errores", ultimaValidacion.errores.length > 0);
+            let html = "";
+            if (ultimaValidacion.errores.length) {
+                html += `<strong>⛔ ${ultimaValidacion.errores.length} error(es) — corrige antes de generar el PDF:</strong><ul>`;
+                for (const e of ultimaValidacion.errores) html += `<li>${escHtml(e.mensaje)}</li>`;
+                html += "</ul>";
+            }
+            if (ultimaValidacion.avisos.length) {
+                html += `<strong>⚠️ ${ultimaValidacion.avisos.length} aviso(s) — revisa antes de enviar al cliente:</strong><ul>`;
+                const mostrar = ultimaValidacion.avisos.slice(0, 6);
+                for (const a of mostrar) html += `<li>${escHtml(a.mensaje)}</li>`;
+                if (ultimaValidacion.avisos.length > 6) {
+                    html += `<li>... y ${ultimaValidacion.avisos.length - 6} aviso(s) más</li>`;
+                }
+                html += "</ul>";
+            }
+            el.innerHTML = html;
+        }
+
+        function posTieneProblema(pos) {
+            if (!ultimaValidacion) return "";
+            if (ultimaValidacion.errores.some(e => e.pos === pos)) return " fila-error";
+            if (ultimaValidacion.filasConProblema.has(pos)) return " fila-alerta";
+            return "";
+        }
 
         function nombreUsuario() {
             if (usuarioActual?.nombre) return usuarioActual.nombre;
@@ -644,6 +709,10 @@
         }
 
         async function ejecutarGuardar(actualizar) {
+            if (calculado) {
+                const val = validarPresupuesto(items, optsValidacion(true));
+                if (!confirmarSiHayAvisos(val, "Guardar la oferta")) return;
+            }
             const st = document.getElementById("statusOferta");
             let nombre = ofertaActivaNombre;
             let id = ofertaActualId;
@@ -877,8 +946,12 @@
 
         function aplicarMargenes() {
             if (!items.length) { alert("No hay partidas."); return; }
-            const margenGlobal = parseFloat(document.getElementById("margenGlobal").value) || 0;
-            const colocGlobal = parseFloat(document.getElementById("colocGlobal").value) || 0;
+            const vMargen = validarCampoNumerico("margen", document.getElementById("margenGlobal").value);
+            if (!vMargen.ok) { alert(vMargen.mensaje); return; }
+            const vColoc = validarCampoNumerico("coloc", document.getElementById("colocGlobal").value);
+            if (!vColoc.ok) { alert(vColoc.mensaje); return; }
+            const margenGlobal = vMargen.valor;
+            const colocGlobal = vColoc.valor;
             for (const item of items) {
                 if (item.margen_individual === null || item.margen_individual === undefined) {
                     item.margen_aplicado = margenGlobal;
@@ -913,26 +986,30 @@
         }
 
         function cambiarColoc(idx, val) {
-            items[idx].colocacion_individual = parseFloat(val) || 0;
+            const v = validarCampoNumerico("coloc", val);
+            if (!v.ok) { alert(v.mensaje); if (calculado) renderTotales(recalcularLocal()); return; }
+            items[idx].colocacion_individual = v.valor;
             if (calculado) renderTotales(recalcularLocal());
         }
 
         function cambiarMargen(idx, val) {
-            items[idx].margen_individual = parseFloat(val) || 0;
+            const v = validarCampoNumerico("margen", val);
+            if (!v.ok) { alert(v.mensaje); if (calculado) renderTotales(recalcularLocal()); return; }
+            items[idx].margen_individual = v.valor;
             if (calculado) renderTotales(recalcularLocal());
         }
 
         function cambiarUds(idx, val) {
-            const uds = parseInt(val, 10);
-            if (!uds || uds <= 0) { alert("Unidades inválidas."); return; }
-            items[idx].uds = uds;
+            const v = validarCampoNumerico("uds", val);
+            if (!v.ok) { alert(v.mensaje); if (calculado) renderTotales(recalcularLocal()); return; }
+            items[idx].uds = parseInt(val, 10);
             if (calculado) renderTotales(recalcularLocal());
         }
 
         function cambiarCoste(idx, val) {
-            const coste = parseFloat(val);
-            if (isNaN(coste) || coste < 0) { alert("Coste inválido."); return; }
-            items[idx].coste_u = coste;
+            const v = validarCampoNumerico("coste", val);
+            if (!v.ok) { alert(v.mensaje); if (calculado) renderTotales(recalcularLocal()); return; }
+            items[idx].coste_u = v.valor;
             if (calculado) renderTotales(recalcularLocal());
         }
 
@@ -972,14 +1049,18 @@
         function guardarEdicionPartida() {
             if (filaSeleccionada < 0) return;
             const item = items[filaSeleccionada];
-            const uds = parseInt(document.getElementById("editarUds").value, 10);
-            const coste = parseFloat(document.getElementById("editarCoste").value);
-            if (!uds || uds <= 0) { alert("Unidades inválidas."); return; }
-            if (isNaN(coste) || coste < 0) { alert("Coste inválido."); return; }
-            item.uds = uds;
-            item.coste_u = coste;
-            item.margen_individual = parseFloat(document.getElementById("editarMargen").value) || 0;
-            item.colocacion_individual = parseFloat(document.getElementById("editarColoc").value) || 0;
+            const vUds = validarCampoNumerico("uds", document.getElementById("editarUds").value);
+            if (!vUds.ok) { alert(vUds.mensaje); return; }
+            const vCoste = validarCampoNumerico("coste", document.getElementById("editarCoste").value);
+            if (!vCoste.ok) { alert(vCoste.mensaje); return; }
+            const vMargen = validarCampoNumerico("margen", document.getElementById("editarMargen").value);
+            if (!vMargen.ok) { alert(vMargen.mensaje); return; }
+            const vColoc = validarCampoNumerico("coloc", document.getElementById("editarColoc").value);
+            if (!vColoc.ok) { alert(vColoc.mensaje); return; }
+            item.uds = parseInt(document.getElementById("editarUds").value, 10);
+            item.coste_u = vCoste.valor;
+            item.margen_individual = vMargen.valor;
+            item.colocacion_individual = vColoc.valor;
             item.nota_individual = document.getElementById("editarNotaIndividual").value.trim();
             item.notas = document.getElementById("editarNotas").value.trim();
             cerrarModalEditar();
@@ -1011,15 +1092,25 @@
         function guardarPartidaManual() {
             const descripcion = document.getElementById("nuevaDesc").value.trim();
             if (!descripcion) { alert("La descripción no puede estar vacía."); return; }
-            const uds = parseInt(document.getElementById("nuevaUds").value, 10);
-            if (!uds || uds <= 0) { alert("Unidades inválidas."); return; }
-            const coste = parseFloat(document.getElementById("nuevaCoste").value);
-            if (isNaN(coste) || coste < 0) { alert("Coste inválido."); return; }
+            const vUds = validarCampoNumerico("uds", document.getElementById("nuevaUds").value);
+            if (!vUds.ok) { alert(vUds.mensaje); return; }
+            const vCoste = validarCampoNumerico("coste", document.getElementById("nuevaCoste").value);
+            if (!vCoste.ok) { alert(vCoste.mensaje); return; }
             const margenTxt = document.getElementById("nuevaMargen").value.trim();
             const colocTxt = document.getElementById("nuevaColoc").value.trim();
             let margen_individual = null, colocacion_individual = null;
-            if (margenTxt !== "") margen_individual = parseFloat(margenTxt) || 0;
-            if (colocTxt !== "") colocacion_individual = parseFloat(colocTxt) || 0;
+            if (margenTxt !== "") {
+                const vM = validarCampoNumerico("margen", margenTxt);
+                if (!vM.ok) { alert(vM.mensaje); return; }
+                margen_individual = vM.valor;
+            }
+            if (colocTxt !== "") {
+                const vC = validarCampoNumerico("coloc", colocTxt);
+                if (!vC.ok) { alert(vC.mensaje); return; }
+                colocacion_individual = vC.valor;
+            }
+            const uds = parseInt(document.getElementById("nuevaUds").value, 10);
+            const coste = vCoste.valor;
 
             const nuevaPos = `Pos.${items.length + 1}`;
             items.push({
@@ -1088,6 +1179,7 @@
             document.getElementById("btnPdf").disabled = false;
             document.getElementById("btnResumen").disabled = false;
             document.getElementById("btnFichas").disabled = false;
+            actualizarPanelValidaciones();
             renderTablaFilas(t.filas, true);
         }
 
@@ -1115,7 +1207,8 @@
                     ? `<input class="inp-celda" type="number" min="0" step="0.01" value="${items[i].coste_u.toFixed(2)}" onchange="cambiarCoste(${i}, this.value)" onclick="event.stopPropagation()">`
                     : `${f.coste_u.toFixed(2)}`;
                 const notaIcon = iconoNota(items[i]);
-                html += `<tr class="tabla-row${sel}" onclick="seleccionarFila(${i})" ondblclick="abrirModalEditar(${i})">
+                const alertaCls = posTieneProblema(f.pos);
+                html += `<tr class="tabla-row${sel}${alertaCls}" onclick="seleccionarFila(${i})" ondblclick="abrirModalEditar(${i})">
                     <td>${escHtml(f.pos)}</td><td>${udsCell}</td><td>${escHtml(corta)}${notaIcon}</td>
                     <td>${costeCell}</td><td>${colocCell}</td>
                     <td>${margenCell}</td><td>${f.pvp_u.toFixed(2)}</td>
@@ -1150,6 +1243,9 @@
 
         async function generarPdf() {
             if (!items.length) { alert("No hay partidas."); return; }
+            if (!calculado) { alert("Primero pulsa «Aplicar márgenes» para calcular el presupuesto."); return; }
+            const val = validarPresupuesto(items, optsValidacion(true));
+            if (!confirmarSiHayAvisos(val, "Generar el PDF")) return;
             const body = {
                 items,
                 datos_cliente: {
@@ -1187,6 +1283,9 @@
         }
         async function generarResumenPdf() {
             if (!items.length) { alert("No hay partidas."); return; }
+            if (!calculado) { alert("Primero pulsa «Aplicar márgenes» para calcular el presupuesto."); return; }
+            const val = validarPresupuesto(items, optsValidacion(false));
+            if (!confirmarSiHayAvisos(val, "Generar el resumen interno")) return;
             const body = {
                 items,
                 datos_cliente: {
@@ -1280,6 +1379,9 @@
 
         async function generarPdfConFichas() {
             if (!items.length) { alert("No hay partidas."); return; }
+            if (!calculado) { alert("Primero pulsa «Aplicar márgenes» para calcular el presupuesto."); return; }
+            const val = validarPresupuesto(items, optsValidacion(true));
+            if (!confirmarSiHayAvisos(val, "Generar el PDF completo")) return;
             const fichaIds = obtenerFichasSeleccionadas();
             const body = {
                 items,
