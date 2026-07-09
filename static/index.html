@@ -70,7 +70,12 @@
         .totales-item.margen strong, .totales-item.margen span { color: #3b82f6; }
         .totales-sep { color: #9ca3af; font-size: 1.1rem; }
         .botones-pdf { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+        .btn-warn { background: #f59e0b; color: white; }
         .btn-resumen { background: #3b82f6; color: white; }
+        .btn-fichas { background: #7c3aed; color: white; }
+        .ficha-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+        .ficha-item label { margin: 0; font-weight: 500; cursor: pointer; flex: 1; }
+        .cat-title { font-size: 0.78rem; font-weight: 700; color: #1e40af; margin: 12px 0 6px; }
         .btn-add { background: #8b5cf6; color: white; }
         .btn-del { background: #ef4444; color: white; }
         .btn-edit { background: #0ea5e9; color: white; }
@@ -193,8 +198,29 @@
                 <button class="btn btn-resumen" onclick="generarResumenPdf()" id="btnResumen" disabled>
                     Resumen Cálculos (PDF interno)
                 </button>
+                <button class="btn btn-fichas" onclick="abrirModalFichas()" id="btnFichas" disabled>
+                    📎 PDF + Fichas técnicas
+                </button>
             </div>
             <div id="statusPdfGen" class="status"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalFichas">
+        <div class="modal" style="max-width:520px">
+            <h3>📎 Fichas técnicas a incluir</h3>
+            <p style="font-size:0.82rem;color:#64748b;margin:0 0 12px">
+                Marca las fichas que quieres añadir al presupuesto. Se generará un solo PDF.
+            </p>
+            <div style="margin-bottom:10px">
+                <button class="btn btn-primary" style="padding:4px 10px;font-size:0.75rem" onclick="marcarTodasFichas(true)">Marcar todas</button>
+                <button class="btn" style="padding:4px 10px;font-size:0.75rem;background:#e2e8f0" onclick="marcarTodasFichas(false)">Desmarcar todas</button>
+            </div>
+            <div id="listaFichas" style="max-height:280px;overflow-y:auto"></div>
+            <div class="modal-actions">
+                <button class="btn btn-fichas" onclick="generarPdfConFichas()">Generar PDF completo</button>
+                <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalFichas()">Cancelar</button>
+            </div>
         </div>
     </div>
 
@@ -461,6 +487,7 @@
             document.getElementById("totales").classList.add("hidden");
             document.getElementById("btnPdf").disabled = true;
             document.getElementById("btnResumen").disabled = true;
+            document.getElementById("btnFichas").disabled = true;
         }
 
         (async () => {
@@ -1031,6 +1058,7 @@
                 document.getElementById("totales").classList.add("hidden");
                 document.getElementById("btnPdf").disabled = true;
                 document.getElementById("btnResumen").disabled = true;
+                document.getElementById("btnFichas").disabled = true;
                 return;
             }
             if (calculado) renderTotales(recalcularLocal());
@@ -1060,6 +1088,7 @@
             `;
             document.getElementById("btnPdf").disabled = false;
             document.getElementById("btnResumen").disabled = false;
+            document.getElementById("btnFichas").disabled = false;
             renderTablaFilas(t.filas, true);
         }
 
@@ -1115,6 +1144,7 @@
             if (!calculado) {
                 document.getElementById("btnPdf").disabled = true;
                 document.getElementById("btnResumen").disabled = true;
+                document.getElementById("btnFichas").disabled = true;
                 document.getElementById("totales").classList.add("hidden");
             }
         }
@@ -1185,6 +1215,113 @@
                 a.click();
                 URL.revokeObjectURL(url);
                 document.getElementById("statusPdfGen").innerHTML = `<span class="ok">✅ Resumen interno descargado</span>`;
+            } catch (err) {
+                document.getElementById("statusPdfGen").innerHTML = `<span class="err">❌ ${err.message}</span>`;
+            }
+        }
+
+        let fichasCatalogo = [];
+
+        async function cargarFichasCatalogo() {
+            try {
+                const res = await apiFetch("/api/fichas");
+                if (!res.ok) return [];
+                const data = await res.json();
+                fichasCatalogo = data.fichas || [];
+                return fichasCatalogo;
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function renderListaFichas() {
+            const wrap = document.getElementById("listaFichas");
+            if (!fichasCatalogo.length) {
+                wrap.innerHTML = '<p style="color:#64748b;font-size:0.85rem">No hay fichas técnicas disponibles. El administrador puede subirlas en Admin.</p>';
+                return;
+            }
+            const porCat = {};
+            for (const f of fichasCatalogo) {
+                const cat = f.categoria_label || f.categoria || "Otros";
+                if (!porCat[cat]) porCat[cat] = [];
+                porCat[cat].push(f);
+            }
+            let html = "";
+            for (const [cat, lista] of Object.entries(porCat)) {
+                html += `<div class="cat-title">${escHtml(cat)}</div>`;
+                for (const f of lista) {
+                    html += `<div class="ficha-item">
+                        <input type="checkbox" id="ficha_${f.id}" value="${f.id}" checked>
+                        <label for="ficha_${f.id}">${escHtml(f.nombre)}</label>
+                    </div>`;
+                }
+            }
+            wrap.innerHTML = html;
+        }
+
+        async function abrirModalFichas() {
+            if (!items.length) { alert("No hay partidas."); return; }
+            document.getElementById("modalFichas").classList.add("active");
+            document.getElementById("listaFichas").innerHTML = '<p style="color:#64748b">Cargando fichas...</p>';
+            await cargarFichasCatalogo();
+            renderListaFichas();
+        }
+
+        function cerrarModalFichas() {
+            document.getElementById("modalFichas").classList.remove("active");
+        }
+
+        function marcarTodasFichas(val) {
+            document.querySelectorAll("#listaFichas input[type=checkbox]").forEach(cb => { cb.checked = val; });
+        }
+
+        function obtenerFichasSeleccionadas() {
+            return [...document.querySelectorAll("#listaFichas input[type=checkbox]:checked")].map(cb => cb.value);
+        }
+
+        async function generarPdfConFichas() {
+            if (!items.length) { alert("No hay partidas."); return; }
+            const fichaIds = obtenerFichasSeleccionadas();
+            const body = {
+                items,
+                datos_cliente: {
+                    num_oferta: document.getElementById("numOferta").value,
+                    cliente: document.getElementById("cliente").value,
+                    direccion: document.getElementById("direccion").value,
+                    telefono: document.getElementById("telefono").value,
+                    email: document.getElementById("email").value,
+                    referencia: document.getElementById("referencia").value,
+                },
+                condiciones_texto: condicionesTexto,
+                ficha_ids: fichaIds,
+            };
+            cerrarModalFichas();
+            document.getElementById("statusPdfGen").textContent = fichaIds.length
+                ? "Generando PDF con fichas técnicas..."
+                : "Generando PDF...";
+            try {
+                const res = await apiFetch("/api/generar-pdf-paquete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || "Error al generar PDF");
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                const num = document.getElementById("numOferta").value || "web";
+                const sufijo = fichaIds.length ? "_completo" : "";
+                a.download = `Presupuesto_${num}${sufijo}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+                const msg = fichaIds.length
+                    ? `✅ PDF completo descargado (${fichaIds.length} ficha${fichaIds.length > 1 ? "s" : ""})`
+                    : "✅ PDF descargado";
+                document.getElementById("statusPdfGen").innerHTML = `<span class="ok">${msg}</span>`;
             } catch (err) {
                 document.getElementById("statusPdfGen").innerHTML = `<span class="err">❌ ${err.message}</span>`;
             }

@@ -24,6 +24,11 @@
         th { background: #1e40af; color: white; padding: 8px; text-align: left; }
         td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
         .badge { background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; }
+        .badge-off { background: #fee2e2; color: #b91c1c; }
+        select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.85rem; }
+        .ficha-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .ficha-row input[type=text] { flex: 1; min-width: 160px; }
+        .ficha-row select { width: auto; min-width: 140px; }
         .status { font-size: 0.8rem; margin-top: 8px; }
         .ok { color: #10b981; }
         .err { color: #dc2626; }
@@ -63,6 +68,36 @@
             <h2>Usuarios registrados</h2>
             <div id="tablaUsuarios">Cargando...</div>
         </div>
+
+        <div class="panel">
+            <h2>📎 Fichas técnicas PDF</h2>
+            <p style="font-size:0.82rem;color:#64748b;margin:0 0 12px">
+                Sube PDFs de series, vidrios, cajones, garantías, etc. Los usuarios podrán elegir cuáles incluir al generar el presupuesto.
+            </p>
+            <div class="row2">
+                <div>
+                    <label>Nombre de la ficha</label>
+                    <input type="text" id="fichaNombre" placeholder="Ej. Serie Corredera 70">
+                </div>
+                <div>
+                    <label>Categoría</label>
+                    <select id="fichaCategoria">
+                        <option value="series">Series de ventana</option>
+                        <option value="vidrios">Vidrios</option>
+                        <option value="cajones">Cajones</option>
+                        <option value="garantias">Garantías</option>
+                        <option value="otros">Otros</option>
+                    </select>
+                </div>
+            </div>
+            <label>Archivo PDF</label>
+            <input type="file" id="fichaArchivo" accept=".pdf,application/pdf">
+            <div style="margin-top:12px">
+                <button class="btn btn-primary" onclick="subirFicha()">➕ Subir ficha</button>
+            </div>
+            <div id="statusFicha" class="status"></div>
+            <div id="tablaFichas" style="margin-top:16px">Cargando fichas...</div>
+        </div>
     </div>
 
     <script src="/static/js/auth.js"></script>
@@ -76,6 +111,7 @@
                 return;
             }
             cargarUsuarios();
+            cargarFichasAdmin();
         })();
 
         async function cargarUsuarios() {
@@ -150,6 +186,100 @@
             if (!confirm(`¿Eliminar usuario ${email}?`)) return;
             const res = await apiFetch(`/api/admin/usuarios/${userId}`, { method: "DELETE" });
             if (res.ok) cargarUsuarios();
+            else alert((await res.json()).detail || "Error");
+        }
+
+        let categoriasFichas = {};
+
+        async function cargarFichasAdmin() {
+            const wrap = document.getElementById("tablaFichas");
+            try {
+                const res = await apiFetch("/api/admin/fichas");
+                if (!res.ok) throw new Error("Error al cargar fichas");
+                const data = await res.json();
+                categoriasFichas = data.categorias || {};
+                const lista = data.fichas || [];
+                if (!lista.length) {
+                    wrap.innerHTML = "<p>No hay fichas subidas.</p>";
+                    return;
+                }
+                wrap.innerHTML = `<table>
+                    <thead><tr><th>Nombre</th><th>Categoría</th><th>Estado</th><th>Acciones</th></tr></thead>
+                    <tbody>${lista.map(f => `<tr>
+                        <td><input type="text" value="${esc(f.nombre)}" id="nom_${f.id}" style="width:100%"></td>
+                        <td>
+                            <select id="cat_${f.id}">
+                                ${Object.entries(categoriasFichas).map(([k, v]) =>
+                                    `<option value="${k}"${k === f.categoria ? " selected" : ""}>${esc(v)}</option>`
+                                ).join("")}
+                            </select>
+                        </td>
+                        <td>${f.activa
+                            ? '<span class="badge">Activa</span>'
+                            : '<span class="badge badge-off">Inactiva</span>'}</td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-warn" onclick="guardarFicha('${f.id}')">Guardar</button>
+                            <button class="btn btn-primary" onclick="toggleFicha('${f.id}', ${!f.activa})">${f.activa ? "Desactivar" : "Activar"}</button>
+                            <button class="btn btn-del" onclick="borrarFicha('${f.id}', '${esc(f.nombre)}')">Eliminar</button>
+                        </td>
+                    </tr>`).join("")}</tbody></table>`;
+            } catch (e) {
+                wrap.innerHTML = `<p class="err">${e.message}</p>`;
+            }
+        }
+
+        async function subirFicha() {
+            const st = document.getElementById("statusFicha");
+            const nombre = document.getElementById("fichaNombre").value.trim();
+            const categoria = document.getElementById("fichaCategoria").value;
+            const fileInput = document.getElementById("fichaArchivo");
+            const file = fileInput.files[0];
+            if (!nombre) { st.innerHTML = '<span class="err">Indica un nombre.</span>'; return; }
+            if (!file) { st.innerHTML = '<span class="err">Selecciona un PDF.</span>'; return; }
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("nombre", nombre);
+            fd.append("categoria", categoria);
+            fd.append("activa", "true");
+            try {
+                const res = await apiFetch("/api/admin/fichas", { method: "POST", body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error al subir");
+                st.innerHTML = `<span class="ok">✅ Ficha subida: ${esc(data.nombre)}</span>`;
+                document.getElementById("fichaNombre").value = "";
+                fileInput.value = "";
+                cargarFichasAdmin();
+            } catch (e) {
+                st.innerHTML = `<span class="err">❌ ${e.message}</span>`;
+            }
+        }
+
+        async function guardarFicha(fichaId) {
+            const nombre = document.getElementById(`nom_${fichaId}`).value.trim();
+            const categoria = document.getElementById(`cat_${fichaId}`).value;
+            const res = await apiFetch(`/api/admin/fichas/${fichaId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nombre, categoria }),
+            });
+            if (res.ok) cargarFichasAdmin();
+            else alert((await res.json()).detail || "Error");
+        }
+
+        async function toggleFicha(fichaId, activa) {
+            const res = await apiFetch(`/api/admin/fichas/${fichaId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ activa }),
+            });
+            if (res.ok) cargarFichasAdmin();
+            else alert((await res.json()).detail || "Error");
+        }
+
+        async function borrarFicha(fichaId, nombre) {
+            if (!confirm(`¿Eliminar ficha "${nombre}"?`)) return;
+            const res = await apiFetch(`/api/admin/fichas/${fichaId}`, { method: "DELETE" });
+            if (res.ok) cargarFichasAdmin();
             else alert((await res.json()).detail || "Error");
         }
     </script>
