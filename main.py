@@ -26,6 +26,7 @@ from fichas import (
     update_ficha,
 )
 from pdf_merge import merge_pdfs
+from calculos import aplicar_margenes, calcular_totales
 from generador_pdf import generar_pdf_bytes, generar_resumen_pdf_bytes
 from parser_pdf import asociar_dibujos_a_partidas, extraer_dibujos
 from parser_txt import parse_txt_bytes
