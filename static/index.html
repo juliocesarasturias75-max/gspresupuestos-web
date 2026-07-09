@@ -375,6 +375,35 @@
         let desajusteInfo = null;
         let ultimaValidacion = null;
 
+        if (typeof validarCampoNumerico !== "function") {
+            window.validarCampoNumerico = function(tipo, valor) {
+                const n = parseFloat(valor);
+                if (isNaN(n)) return { ok: false, mensaje: "Introduce un número válido." };
+                if (tipo === "uds") {
+                    const u = parseInt(valor, 10);
+                    if (!u || u <= 0) return { ok: false, mensaje: "Las unidades deben ser mayor que 0." };
+                }
+                if (tipo === "coste" && n < 0) return { ok: false, mensaje: "El coste no puede ser negativo." };
+                if (tipo === "coloc" && n < 0) return { ok: false, mensaje: "La colocación no puede ser negativa." };
+                if (tipo === "margen" && n < 0) return { ok: false, mensaje: "El margen no puede ser negativo." };
+                return { ok: true, valor: tipo === "uds" ? parseInt(valor, 10) : n };
+            };
+        }
+        if (typeof validarPresupuesto !== "function") {
+            window.validarPresupuesto = function() {
+                return { errores: [], avisos: [], ok: true, filasConProblema: new Set() };
+            };
+        }
+        if (typeof confirmarSiHayAvisos !== "function") {
+            window.confirmarSiHayAvisos = function(resultado) {
+                if (!resultado.ok) {
+                    alert("No se puede continuar. Corrige los errores del presupuesto.");
+                    return false;
+                }
+                return true;
+            };
+        }
+
         function optsValidacion(requiereCliente = false) {
             return {
                 margenGlobal: getMargenGlobal(),
@@ -389,13 +418,23 @@
 
         function actualizarPanelValidaciones() {
             const el = document.getElementById("bannerValidaciones");
+            if (!el || typeof validarPresupuesto !== "function") {
+                ultimaValidacion = null;
+                return;
+            }
             if (!calculado || !items.length) {
                 el.classList.add("hidden");
                 el.innerHTML = "";
                 ultimaValidacion = null;
                 return;
             }
-            ultimaValidacion = validarPresupuesto(items, optsValidacion(false));
+            try {
+                ultimaValidacion = validarPresupuesto(items, optsValidacion(false));
+            } catch (err) {
+                console.error("Validaciones:", err);
+                ultimaValidacion = null;
+                return;
+            }
             if (!ultimaValidacion.errores.length && !ultimaValidacion.avisos.length) {
                 el.classList.add("hidden");
                 el.innerHTML = "";
@@ -423,8 +462,8 @@
 
         function posTieneProblema(pos) {
             if (!ultimaValidacion) return "";
-            if (ultimaValidacion.errores.some(e => e.pos === pos)) return " fila-error";
-            if (ultimaValidacion.filasConProblema.has(pos)) return " fila-alerta";
+            if (ultimaValidacion.errores?.some(e => e.pos === pos)) return " fila-error";
+            if (ultimaValidacion.filasConProblema?.has?.(pos)) return " fila-alerta";
             return "";
         }
 
@@ -946,12 +985,27 @@
 
         function aplicarMargenes() {
             if (!items.length) { alert("No hay partidas."); return; }
-            const vMargen = validarCampoNumerico("margen", document.getElementById("margenGlobal").value);
-            if (!vMargen.ok) { alert(vMargen.mensaje); return; }
-            const vColoc = validarCampoNumerico("coloc", document.getElementById("colocGlobal").value);
-            if (!vColoc.ok) { alert(vColoc.mensaje); return; }
-            const margenGlobal = vMargen.valor;
-            const colocGlobal = vColoc.valor;
+            const margenRaw = document.getElementById("margenGlobal").value;
+            const colocRaw = document.getElementById("colocGlobal").value;
+            let margenGlobal = parseFloat(margenRaw);
+            let colocGlobal = parseFloat(colocRaw);
+            if (typeof validarCampoNumerico === "function") {
+                const vMargen = validarCampoNumerico("margen", margenRaw);
+                if (!vMargen.ok) { alert(vMargen.mensaje); return; }
+                const vColoc = validarCampoNumerico("coloc", colocRaw);
+                if (!vColoc.ok) { alert(vColoc.mensaje); return; }
+                margenGlobal = vMargen.valor;
+                colocGlobal = vColoc.valor;
+            } else {
+                if (isNaN(margenGlobal) || margenGlobal < 0) {
+                    alert("Introduce un beneficio (%) válido (0 o más).");
+                    return;
+                }
+                if (isNaN(colocGlobal) || colocGlobal < 0) {
+                    alert("Introduce una colocación (€) válida (0 o más).");
+                    return;
+                }
+            }
             for (const item of items) {
                 if (item.margen_individual === null || item.margen_individual === undefined) {
                     item.margen_aplicado = margenGlobal;
@@ -962,8 +1016,12 @@
             }
             calculado = true;
             document.getElementById("tablaToolbar").classList.remove("hidden");
-            const t = recalcularLocal();
-            if (t) renderTotales(t);
+            try {
+                const t = recalcularLocal();
+                if (t) renderTotales(t);
+            } catch (err) {
+                alert("Error al aplicar márgenes: " + err.message);
+            }
         }
 
         function aplicarNotaGlobal() {
@@ -1179,8 +1237,13 @@
             document.getElementById("btnPdf").disabled = false;
             document.getElementById("btnResumen").disabled = false;
             document.getElementById("btnFichas").disabled = false;
-            actualizarPanelValidaciones();
-            renderTablaFilas(t.filas, true);
+            try {
+                actualizarPanelValidaciones();
+                renderTablaFilas(t.filas, true);
+            } catch (err) {
+                console.error("renderTotales:", err);
+                renderTablaFilas(t.filas, true);
+            }
         }
 
         function renderTablaFilas(filas, editable) {
@@ -1204,8 +1267,8 @@
                     ? `<input class="inp-celda inp-celda-sm" type="number" min="1" step="1" value="${items[i].uds}" onchange="cambiarUds(${i}, this.value)" onclick="event.stopPropagation()">`
                     : `${f.uds}`;
                 const costeCell = editable
-                    ? `<input class="inp-celda" type="number" min="0" step="0.01" value="${items[i].coste_u.toFixed(2)}" onchange="cambiarCoste(${i}, this.value)" onclick="event.stopPropagation()">`
-                    : `${f.coste_u.toFixed(2)}`;
+                    ? `<input class="inp-celda" type="number" min="0" step="0.01" value="${Number(items[i].coste_u || 0).toFixed(2)}" onchange="cambiarCoste(${i}, this.value)" onclick="event.stopPropagation()">`
+                    : `${Number(f.coste_u || 0).toFixed(2)}`;
                 const notaIcon = iconoNota(items[i]);
                 const alertaCls = posTieneProblema(f.pos);
                 html += `<tr class="tabla-row${sel}${alertaCls}" onclick="seleccionarFila(${i})" ondblclick="abrirModalEditar(${i})">
