@@ -17,7 +17,15 @@ from auth import (
     obtener_user_id_opcional,
     requiere_admin,
 )
-from calculos import aplicar_margenes, calcular_totales
+from fichas import (
+    CATEGORIAS,
+    add_ficha,
+    delete_ficha,
+    get_ficha_bytes,
+    list_fichas,
+    update_ficha,
+)
+from pdf_merge import merge_pdfs
 from generador_pdf import generar_pdf_bytes, generar_resumen_pdf_bytes
 from parser_pdf import asociar_dibujos_a_partidas, extraer_dibujos
 from parser_txt import parse_txt_bytes
@@ -85,6 +93,10 @@ class GenerarPdfRequest(BaseModel):
     condiciones_texto: str = ""
 
 
+class GenerarPdfPaqueteRequest(GenerarPdfRequest):
+    ficha_ids: list[str] = []
+
+
 class PerfilRequest(BaseModel):
     nombre_empresa: str = ""
     telefono: str = ""
@@ -113,6 +125,12 @@ class CrearUsuarioRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     password: str
+
+
+class FichaUpdateRequest(BaseModel):
+    nombre: str | None = None
+    categoria: str | None = None
+    activa: bool | None = None
 
 
 def _perfil_pdf(user_id: str) -> dict:
@@ -317,7 +335,101 @@ def api_admin_delete_user(user_id: str, _admin: dict = Depends(requiere_admin)):
     return {"ok": True}
 
 
-# ── PRESUPUESTOS (sin cambios) ──────────────────────────
+# ── FICHAS TÉCNICAS ─────────────────────────────────────
+
+@app.get("/api/fichas")
+def api_list_fichas(user_id: str = Depends(obtener_user_id)):
+    return {"fichas": list_fichas(solo_activas=True), "categorias": CATEGORIAS}
+
+
+@app.get("/api/admin/fichas")
+def api_admin_list_fichas(_admin: dict = Depends(requiere_admin)):
+    return {"fichas": list_fichas(solo_activas=False), "categorias": CATEGORIAS}
+
+
+@app.post("/api/admin/fichas")
+async def api_admin_add_ficha(
+    file: UploadFile = File(...),
+    nombre: str = Form(...),
+    categoria: str = Form("otros"),
+    activa: bool = Form(True),
+    _admin: dict = Depends(requiere_admin),
+):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Solo archivos PDF.")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Archivo vacío.")
+    try:
+        return add_ficha(nombre, categoria, data, activa=activa)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.put("/api/admin/fichas/{ficha_id}")
+def api_admin_update_ficha(
+    ficha_id: str,
+    req: FichaUpdateRequest,
+    _admin: dict = Depends(requiere_admin),
+):
+    try:
+        return update_ficha(ficha_id, nombre=req.nombre, categoria=req.categoria, activa=req.activa)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@app.delete("/api/admin/fichas/{ficha_id}")
+def api_admin_delete_ficha(ficha_id: str, _admin: dict = Depends(requiere_admin)):
+    try:
+        delete_ficha(ficha_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    return {"ok": True}
+
+
+@app.post("/api/generar-pdf-paquete")
+def generar_pdf_paquete(
+    req: GenerarPdfPaqueteRequest,
+    user_id: str = Depends(obtener_user_id),
+):
+    if not req.items:
+        raise HTTPException(400, "No hay partidas para generar el PDF.")
+    perfil = _perfil_pdf(user_id)
+    try:
+        pdf_presupuesto = generar_pdf_bytes(
+            req.items,
+            req.datos_cliente,
+            req.condiciones_texto,
+            perfil=perfil,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Error al generar PDF: {e}") from e
+
+    partes = [pdf_presupuesto]
+    for ficha_id in req.ficha_ids:
+        data = get_ficha_bytes(ficha_id)
+        if data:
+            partes.append(data)
+
+    if len(partes) == 1:
+        pdf_final = pdf_presupuesto
+        sufijo = ""
+    else:
+        try:
+            pdf_final = merge_pdfs(partes)
+        except Exception as e:
+            raise HTTPException(500, f"Error al unir fichas: {e}") from e
+        sufijo = "_completo"
+
+    num = req.datos_cliente.get("num_oferta", "presupuesto").replace("/", "-")
+    return Response(
+        content=pdf_final,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="Presupuesto_{num}{sufijo}.pdf"'},
+    )
+
+
+# ── PRESUPUESTOS ────────────────────────────────────────
 
 @app.post("/api/upload-txt")
 async def upload_txt(file: UploadFile = File(...)):
