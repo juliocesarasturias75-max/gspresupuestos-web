@@ -875,23 +875,22 @@
             }
         });
 
-        async function aplicarMargenes() {
+        function aplicarMargenes() {
             if (!items.length) { alert("No hay partidas."); return; }
-            const body = {
-                items,
-                margen_global: parseFloat(document.getElementById("margenGlobal").value) || 0,
-                colocacion_global: parseFloat(document.getElementById("colocGlobal").value) || 0,
-            };
-            const res = await fetch("/api/calcular", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-            });
-            const data = await res.json();
-            if (!res.ok) { alert(data.detail || "Error"); return; }
-            items = data.items;
+            const margenGlobal = parseFloat(document.getElementById("margenGlobal").value) || 0;
+            const colocGlobal = parseFloat(document.getElementById("colocGlobal").value) || 0;
+            for (const item of items) {
+                if (item.margen_individual === null || item.margen_individual === undefined) {
+                    item.margen_aplicado = margenGlobal;
+                }
+                if (item.colocacion_individual === null || item.colocacion_individual === undefined) {
+                    item.colocacion_aplicada = colocGlobal;
+                }
+            }
             calculado = true;
-            renderTotales(data.totales);
+            document.getElementById("tablaToolbar").classList.remove("hidden");
+            const t = recalcularLocal();
+            if (t) renderTotales(t);
         }
 
         function aplicarNotaGlobal() {
