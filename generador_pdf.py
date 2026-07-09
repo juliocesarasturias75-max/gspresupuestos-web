@@ -143,30 +143,7 @@ def _pie_texto_perfil(perfil: dict | None) -> str:
     return (perfil.get("pie_texto") or "").strip() or _leer_pie()
 
 
-def _lineas_empresa(perfil: dict) -> list[str]:
-    lineas = []
-    nombre = (perfil.get("nombre_empresa") or "").strip()
-    cif = (perfil.get("cif") or "").strip()
-    if nombre:
-        lineas.append(f"{nombre} - {cif}" if cif else nombre)
-    elif cif:
-        lineas.append(cif)
-    direccion = (perfil.get("direccion") or "").strip()
-    if direccion:
-        lineas.append(direccion)
-    email = (perfil.get("email_empresa") or "").strip()
-    telefono = (perfil.get("telefono") or "").strip()
-    contacto = []
-    if email:
-        contacto.append(email)
-    if telefono:
-        contacto.append(f"Tlf: {telefono}")
-    if contacto:
-        lineas.append(" · ".join(contacto))
-    return lineas
-
-
-def _agregar_encabezado(story, perfil: dict, style_header, style_empresa):
+def _agregar_encabezado(story, perfil: dict, style_header):
     perfil = perfil or {}
     logo_cargado, logo_img = _cargar_logo(perfil)
     if logo_cargado and logo_img:
@@ -176,21 +153,17 @@ def _agregar_encabezado(story, perfil: dict, style_header, style_empresa):
             ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
         ]))
         story.append(logo_table)
-        story.append(Spacer(1, 4))
-    elif perfil.get("es_usuario"):
-        nombre = (perfil.get("nombre_empresa") or "").strip() or "Mi empresa"
-        story.append(Paragraph(f"<b><font size=14>{nombre}</font></b>", style_header))
         story.append(Spacer(1, 6))
     else:
-        nombre = perfil.get("nombre_empresa") or "VIGO Y PRADO S.L."
-        story.append(Paragraph(f"<b><font size=14>{nombre}</font></b>", style_header))
-        story.append(Spacer(1, 8))
-
-    if perfil.get("es_usuario"):
-        for linea in _lineas_empresa(perfil):
-            story.append(Paragraph(linea, style_empresa))
-        if _lineas_empresa(perfil):
-            story.append(Spacer(1, 6))
+        nombre = (perfil.get("nombre_empresa") or "").strip()
+        if not nombre and not perfil.get("es_usuario"):
+            nombre = "VIGO Y PRADO S.L."
+        if nombre:
+            story.append(Paragraph(f"<b><font size=14>{nombre}</font></b>", style_header))
+            story.append(Spacer(1, 8))
+        elif perfil.get("es_usuario"):
+            story.append(Paragraph("<b><font size=14>Mi empresa</font></b>", style_header))
+            story.append(Spacer(1, 8))
 
 
 def generar_pdf_bytes(
@@ -231,12 +204,8 @@ def generar_pdf_bytes(
     style_info_bold = ParagraphStyle(
         "InfoBold", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold", leading=11
     )
-    style_empresa = ParagraphStyle(
-        "Empresa", parent=styles["Normal"], fontSize=8, alignment=TA_CENTER, leading=10,
-        textColor=colors.HexColor("#374151"),
-    )
 
-    _agregar_encabezado(story, perfil, style_header, style_empresa)
+    _agregar_encabezado(story, perfil, style_header)
 
     num_oferta = datos_cliente.get("num_oferta") or "[NUM. OFERTA]"
     fecha = datetime.datetime.now().strftime("%d.%m.%Y")
