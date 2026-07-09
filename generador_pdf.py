@@ -331,23 +331,35 @@ def generar_pdf_bytes(
 
     iva = total_base * 0.21
     total_final = total_base + iva
-    style_resumen = ParagraphStyle("Resumen", parent=styles["Normal"], fontSize=10)
-    style_total = ParagraphStyle(
-        "Total", parent=styles["Normal"], fontSize=12, fontName="Helvetica-Bold"
+    style_resumen_lbl = ParagraphStyle(
+        "ResLbl", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT,
+    )
+    style_resumen_val = ParagraphStyle(
+        "ResVal", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT,
+    )
+    style_total_lbl = ParagraphStyle(
+        "TotLbl", parent=styles["Normal"], fontSize=12, fontName="Helvetica-Bold", alignment=TA_RIGHT,
+    )
+    style_total_val = ParagraphStyle(
+        "TotVal", parent=styles["Normal"], fontSize=12, fontName="Helvetica-Bold", alignment=TA_RIGHT,
     )
 
     resumen_tab = Table([
-        [Paragraph("BASE IMPONIBLE:", style_resumen), Paragraph(_formato_precio(total_base), style_resumen)],
-        [Paragraph("I.V.A. (21%):", style_resumen), Paragraph(_formato_precio(iva), style_resumen)],
-        [Paragraph("TOTAL PRESUPUESTO:", style_total), Paragraph(_formato_precio(total_final), style_total)],
-    ], colWidths=[155 * mm, 30 * mm])
+        [Paragraph("BASE IMPONIBLE:", style_resumen_lbl), Paragraph(_formato_precio(total_base), style_resumen_val)],
+        [Paragraph("I.V.A. (21%):", style_resumen_lbl), Paragraph(_formato_precio(iva), style_resumen_val)],
+        [Paragraph("TOTAL PRESUPUESTO:", style_total_lbl), Paragraph(_formato_precio(total_final), style_total_val)],
+    ], colWidths=[125 * mm, 55 * mm])
     resumen_tab.setStyle(TableStyle([
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("LEFTPADDING", (1, 0), (1, -1), 15),
-        ("LINEABOVE", (1, 2), (1, 2), 1.5, colors.black),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, 1), 3),
-        ("BOTTOMPADDING", (0, 2), (1, 2), 5),
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#cbd5e1")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("LINEABOVE", (0, 2), (-1, 2), 1.2, colors.HexColor("#1e40af")),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 2), (-1, 2), 8),
     ]))
     story.append(resumen_tab)
 
