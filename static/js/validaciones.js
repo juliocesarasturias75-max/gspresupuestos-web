@@ -66,10 +66,10 @@ function validarPresupuesto(items, opts = {}) {
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const pos = item.pos || `Línea ${i + 1}`;
-        const uds = item.uds;
-        const coste = item.coste_u;
+        const uds = Number(item.uds);
+        const coste = Number(item.coste_u);
 
-        if (!uds || uds <= 0 || uds !== Math.floor(uds)) {
+        if (!uds || uds <= 0 || !Number.isFinite(uds) || Math.floor(uds) !== uds) {
             errores.push({ codigo: "uds_invalida", pos, mensaje: `${pos}: las unidades deben ser un número entero mayor que 0.`, nivel: "error" });
             marcar(pos);
         } else if (uds > GSP_LIMITES.uds_max) {
@@ -80,7 +80,7 @@ function validarPresupuesto(items, opts = {}) {
             marcar(pos);
         }
 
-        if (coste < 0 || isNaN(coste)) {
+        if (!Number.isFinite(coste) || coste < 0) {
             errores.push({ codigo: "coste_negativo", pos, mensaje: `${pos}: el coste no puede ser negativo.`, nivel: "error" });
             marcar(pos);
         } else if (coste === 0) {
@@ -169,18 +169,20 @@ function formatearListaValidacion(resultado) {
 }
 
 function confirmarSiHayAvisos(resultado, accion) {
-    if (!resultado.ok) {
+    const errores = resultado?.errores || [];
+    const avisos = resultado?.avisos || [];
+    if (!resultado?.ok) {
         alert(
             "No se puede continuar. Corrige estos errores:\n\n" +
-            resultado.errores.map((e) => "• " + e.mensaje).join("\n")
+            errores.map((e) => "• " + e.mensaje).join("\n")
         );
         return false;
     }
-    if (resultado.avisos.length) {
-        const lista = resultado.avisos.slice(0, 8).map((a) => "• " + a.mensaje).join("\n");
-        const extra = resultado.avisos.length > 8 ? `\n... y ${resultado.avisos.length - 8} aviso(s) más.` : "";
+    if (avisos.length) {
+        const lista = avisos.slice(0, 8).map((a) => "• " + a.mensaje).join("\n");
+        const extra = avisos.length > 8 ? `\n... y ${avisos.length - 8} aviso(s) más.` : "";
         return confirm(
-            `ATENCIÓN — Se han detectado ${resultado.avisos.length} aviso(s):\n\n${lista}${extra}\n\n¿${accion} igualmente bajo tu responsabilidad?`
+            `ATENCIÓN — Se han detectado ${avisos.length} aviso(s):\n\n${lista}${extra}\n\n¿${accion} igualmente bajo tu responsabilidad?`
         );
     }
     return true;
