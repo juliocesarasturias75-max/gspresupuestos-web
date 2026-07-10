@@ -279,15 +279,16 @@
             <h3 id="guardarTitulo">💾 Guardar oferta</h3>
             <p id="guardarDesc" style="font-size:0.82rem;color:#64748b;margin:0 0 12px"></p>
             <div id="guardarOpciones" class="hidden">
-                <button class="btn btn-success" id="btnActualizarOferta" style="width:100%;margin-bottom:8px" onclick="ejecutarGuardar(true)">📝 Actualizar oferta actual</button>
-                <button class="btn btn-primary" style="width:100%" onclick="mostrarFormNuevaCopia()">📋 Guardar como copia nueva</button>
+                <button type="button" class="btn btn-success" id="btnActualizarOferta" style="width:100%;margin-bottom:8px" onclick="ejecutarGuardar(true)">📝 Actualizar oferta actual</button>
+                <button type="button" class="btn btn-primary" style="width:100%" onclick="mostrarFormNuevaCopia()">📋 Guardar como copia nueva</button>
             </div>
             <div id="guardarForm">
                 <label>Nombre de la oferta</label>
                 <input type="text" id="guardarNombre" placeholder="Ej: García - Puerta garaje">
+                <div id="statusGuardar" class="status"></div>
                 <div class="modal-actions">
-                    <button class="btn btn-success" onclick="ejecutarGuardar(false)">Guardar</button>
-                    <button class="btn" style="background:#6b7280;color:white" onclick="cerrarModalGuardar()">Cancelar</button>
+                    <button type="button" class="btn btn-success" id="btnGuardarOferta" onclick="ejecutarGuardar(false)">Guardar</button>
+                    <button type="button" class="btn" style="background:#6b7280;color:white" onclick="cerrarModalGuardar()">Cancelar</button>
                 </div>
             </div>
         </div>
@@ -745,46 +746,63 @@
 
         function cerrarModalGuardar() {
             document.getElementById("modalGuardar").classList.remove("active");
+            const sg = document.getElementById("statusGuardar");
+            if (sg) sg.innerHTML = "";
+            const btn = document.getElementById("btnGuardarOferta");
+            if (btn) { btn.disabled = false; btn.textContent = "Guardar"; }
         }
 
         async function ejecutarGuardar(actualizar) {
-            if (calculado) {
-                const val = validarPresupuesto(items, optsValidacion(true));
-                if (!confirmarSiHayAvisos(val, "Guardar la oferta")) return;
-            }
             const st = document.getElementById("statusOferta");
-            let nombre = ofertaActivaNombre;
-            let id = ofertaActualId;
-            let method = "POST";
-            let url = "/api/ofertas";
+            const stModal = document.getElementById("statusGuardar");
+            const btnGuardar = document.getElementById("btnGuardarOferta");
 
-            if (actualizar && ofertaActualId) {
-                nombre = ofertaActivaNombre;
-                url = `/api/ofertas/${ofertaActualId}`;
-                method = "PUT";
-            } else {
-                nombre = document.getElementById("guardarNombre").value.trim();
-                if (!nombre) { alert("Escribe un nombre para la oferta."); return; }
-                id = null;
-                method = "POST";
-                url = "/api/ofertas";
-            }
-
-            const body = {
-                nombre,
-                num_oferta: document.getElementById("numOferta").value,
-                cliente: document.getElementById("cliente").value,
-                datos: estadoOferta(),
-            };
             try {
+                if (calculado && typeof validarPresupuesto === "function") {
+                    const val = validarPresupuesto(items, optsValidacion(true));
+                    if (!val.ok) {
+                        const msg = (val.errores || []).map((e) => "• " + e.mensaje).join("\n");
+                        alert("No se puede guardar. Corrige estos errores:\n\n" + msg);
+                        return;
+                    }
+                }
+
+                let nombre = ofertaActivaNombre;
+                let id = ofertaActualId;
+                let method = "POST";
+                let url = "/api/ofertas";
+
+                if (actualizar && ofertaActualId) {
+                    nombre = ofertaActivaNombre;
+                    url = `/api/ofertas/${ofertaActualId}`;
+                    method = "PUT";
+                } else {
+                    nombre = document.getElementById("guardarNombre").value.trim();
+                    if (!nombre) { alert("Escribe un nombre para la oferta."); return; }
+                    id = null;
+                    method = "POST";
+                    url = "/api/ofertas";
+                }
+
+                if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = "Guardando..."; }
+                if (stModal) stModal.innerHTML = `<span class="ok">Guardando oferta...</span>`;
+
+                const body = {
+                    nombre,
+                    num_oferta: document.getElementById("numOferta").value,
+                    cliente: document.getElementById("cliente").value,
+                    datos: estadoOferta(),
+                };
+
                 const res = await apiFetch(url, {
                     method,
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(body),
                 });
-                if (!res.ok) throw new Error((await res.json()).detail || "Error al guardar");
-                const saved = await res.json();
-                ofertaActualId = saved.id;
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || "Error al guardar la oferta");
+
+                ofertaActualId = data.id;
                 ofertaActivaNombre = nombre;
                 if (archivosBloqueados) {
                     bloquearArchivos(true, nombre);
@@ -793,7 +811,11 @@
                 const msg = actualizar ? "actualizada" : "guardada";
                 st.innerHTML = `<span class="ok">✅ Oferta ${msg}: ${escHtml(nombre)}</span>`;
             } catch (e) {
-                st.innerHTML = `<span class="err">❌ ${e.message}</span>`;
+                const errMsg = e.message || "Error desconocido al guardar";
+                if (stModal) stModal.innerHTML = `<span class="err">❌ ${escHtml(errMsg)}</span>`;
+                st.innerHTML = `<span class="err">❌ ${escHtml(errMsg)}</span>`;
+                alert("No se pudo guardar la oferta:\n\n" + errMsg);
+                if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = "Guardar"; }
             }
         }
 
