@@ -75,3 +75,25 @@ def requiere_admin(payload: dict = Depends(obtener_payload)) -> dict:
     if not payload.get("is_admin"):
         raise HTTPException(403, "Solo administradores.")
     return payload
+
+
+def verificar_terminos(user_id: str):
+    if not AUTH_ENABLED:
+        return
+    from users import terminos_aceptados
+
+    if not terminos_aceptados(user_id):
+        raise HTTPException(
+            403,
+            "Debes leer y aceptar el manual de usuario y las condiciones de uso.",
+        )
+
+
+def obtener_user_id_activo(user_id: str = Depends(obtener_user_id)) -> str:
+    verificar_terminos(user_id)
+    return user_id
+
+
+def requiere_admin_activo(payload: dict = Depends(requiere_admin)) -> dict:
+    verificar_terminos(payload.get("sub"))
+    return payload

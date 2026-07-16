@@ -13,6 +13,7 @@ from store import init_user_data
 
 REGISTRY_DIR = os.path.join(get_data_dir(), "_registry")
 USERS_FILE = os.path.join(REGISTRY_DIR, "users.json")
+TERMINOS_VERSION = "1.0"
 
 
 def _ahora() -> str:
@@ -40,6 +41,13 @@ def _save_all(users: dict):
         json.dump(users, f, indent=2, ensure_ascii=False)
 
 
+def _terminos_vigentes(user: dict) -> bool:
+    return (
+        user.get("terminos_version") == TERMINOS_VERSION
+        and bool(user.get("terminos_aceptados_at"))
+    )
+
+
 def _public_user(user: dict) -> dict:
     return {
         "id": user["id"],
@@ -48,7 +56,37 @@ def _public_user(user: dict) -> dict:
         "is_admin": bool(user.get("is_admin")),
         "activo": user.get("activo", True),
         "created_at": user.get("created_at"),
+        "terminos_aceptados": _terminos_vigentes(user),
+        "terminos_aceptados_at": user.get("terminos_aceptados_at"),
+        "terminos_version": user.get("terminos_version"),
     }
+
+
+def terminos_aceptados(user_id: str) -> bool:
+    user = get_user(user_id)
+    return bool(user and _terminos_vigentes(user))
+
+
+def get_terminos_estado(user_id: str) -> dict:
+    user = get_user(user_id)
+    if not user:
+        raise ValueError("Usuario no encontrado.")
+    return {
+        "version_actual": TERMINOS_VERSION,
+        "aceptado": _terminos_vigentes(user),
+        "aceptado_at": user.get("terminos_aceptados_at"),
+        "version_aceptada": user.get("terminos_version"),
+    }
+
+
+def aceptar_terminos(user_id: str) -> dict:
+    users = _load_all()
+    if user_id not in users:
+        raise ValueError("Usuario no encontrado.")
+    users[user_id]["terminos_aceptados_at"] = _ahora()
+    users[user_id]["terminos_version"] = TERMINOS_VERSION
+    _save_all(users)
+    return get_terminos_estado(user_id)
 
 
 def list_users() -> list:

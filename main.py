@@ -2,6 +2,7 @@
 
 import json
 import os
+import html
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -14,8 +15,9 @@ from auth import (
     crear_token,
     obtener_payload,
     obtener_user_id,
-    obtener_user_id_opcional,
+    obtener_user_id_activo,
     requiere_admin,
+    requiere_admin_activo,
 )
 from fichas import (
     CATEGORIAS,
@@ -45,10 +47,13 @@ from store import (
     save_perfil,
 )
 from users import (
+    TERMINOS_VERSION,
+    aceptar_terminos,
     authenticate,
     create_user,
     delete_user,
     ensure_admin,
+    get_terminos_estado,
     list_users,
     update_password,
 )
@@ -58,6 +63,7 @@ load_dotenv()
 app = FastAPI(title="GSPresupuestos Web")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+DOCS_DIR = os.path.join(os.path.dirname(__file__), "docs")
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -76,6 +82,38 @@ def _html_page(nombre: str) -> str:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
     raise HTTPException(404, f"{nombre} no encontrado")
+
+
+def _doc_html(titulo: str, nombre_archivo: str) -> str:
+    path = os.path.join(DOCS_DIR, nombre_archivo)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"{nombre_archivo} no encontrado")
+    with open(path, "r", encoding="utf-8") as f:
+        contenido = f.read()
+    cuerpo = html.escape(contenido)
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{html.escape(titulo)}</title>
+    <style>
+        body {{ font-family: 'Segoe UI', sans-serif; background: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }}
+        .wrap {{ max-width: 900px; margin: 0 auto; background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 28px; }}
+        h1 {{ color: #1e40af; font-size: 1.35rem; margin-top: 0; }}
+        pre {{ white-space: pre-wrap; word-wrap: break-word; font-family: inherit; font-size: 0.92rem; line-height: 1.55; }}
+        .top {{ margin-bottom: 18px; }}
+        a {{ color: #1e40af; }}
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="top"><a href="/">← Volver a GSpresupuestos</a></div>
+        <h1>{html.escape(titulo)}</h1>
+        <pre>{cuerpo}</pre>
+    </div>
+</body>
+</html>"""
 
 
 class LoginRequest(BaseModel):
@@ -171,6 +209,19 @@ def admin_page():
     return _html_page("admin.html")
 
 
+@app.get("/docs/manual", response_class=HTMLResponse)
+def docs_manual():
+    return _doc_html("Manual de usuario — GSpresupuestos", "MANUAL_USUARIO_GSPRESUPUESTOS.md")
+
+
+@app.get("/docs/condiciones", response_class=HTMLResponse)
+def docs_condiciones():
+    return _doc_html(
+        "Condiciones de uso y exención de responsabilidad",
+        "CONDICIONES_USO_Y_EXENCION_RESPONSABILIDAD.md",
+    )
+
+
 @app.get("/api/health")
 def health():
     return {
@@ -207,28 +258,49 @@ def api_login(req: LoginRequest):
 
 @app.get("/api/me")
 def api_me(payload: dict = Depends(obtener_payload)):
+    user_id = payload.get("sub")
+    terminos = {"aceptado": True, "version_actual": TERMINOS_VERSION}
+    if user_id:
+        try:
+            terminos = get_terminos_estado(user_id)
+        except ValueError:
+            pass
     return {
-        "id": payload.get("sub"),
+        "id": user_id,
         "email": payload.get("email"),
         "nombre": payload.get("nombre", ""),
         "is_admin": bool(payload.get("is_admin")),
+        "terminos": terminos,
     }
 
 
+@app.get("/api/terminos")
+def api_get_terminos(user_id: str = Depends(obtener_user_id)):
+    return get_terminos_estado(user_id)
+
+
+@app.post("/api/terminos/aceptar")
+def api_aceptar_terminos(user_id: str = Depends(obtener_user_id)):
+    try:
+        return aceptar_terminos(user_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @app.get("/api/perfil")
-def api_get_perfil(user_id: str = Depends(obtener_user_id)):
+def api_get_perfil(user_id: str = Depends(obtener_user_id_activo)):
     return get_perfil(user_id)
 
 
 @app.put("/api/perfil")
-def api_save_perfil(req: PerfilRequest, user_id: str = Depends(obtener_user_id)):
+def api_save_perfil(req: PerfilRequest, user_id: str = Depends(obtener_user_id_activo)):
     perfil = get_perfil(user_id)
     perfil.update(req.model_dump())
     return save_perfil(user_id, perfil)
 
 
 @app.get("/api/perfil/logo")
-def api_get_logo(user_id: str = Depends(obtener_user_id)):
+def api_get_logo(user_id: str = Depends(obtener_user_id_activo)):
     path = get_logo_path(user_id)
     if not path:
         raise HTTPException(404, "Sin logo.")
@@ -238,7 +310,7 @@ def api_get_logo(user_id: str = Depends(obtener_user_id)):
 @app.post("/api/perfil/logo")
 async def api_upload_logo(
     file: UploadFile = File(...),
-    user_id: str = Depends(obtener_user_id),
+    user_id: str = Depends(obtener_user_id_activo),
 ):
     if not file.filename:
         raise HTTPException(400, "Archivo no válido.")
@@ -251,22 +323,22 @@ async def api_upload_logo(
 
 
 @app.get("/api/condiciones")
-def api_get_condiciones(user_id: str = Depends(obtener_user_id)):
+def api_get_condiciones(user_id: str = Depends(obtener_user_id_activo)):
     return {"condiciones": get_condiciones(user_id)}
 
 
 @app.put("/api/condiciones")
-def api_save_condiciones(req: CondicionesRequest, user_id: str = Depends(obtener_user_id)):
+def api_save_condiciones(req: CondicionesRequest, user_id: str = Depends(obtener_user_id_activo)):
     return {"condiciones": save_condiciones(user_id, req.condiciones)}
 
 
 @app.get("/api/ofertas")
-def api_list_ofertas(user_id: str = Depends(obtener_user_id)):
+def api_list_ofertas(user_id: str = Depends(obtener_user_id_activo)):
     return {"ofertas": list_ofertas(user_id)}
 
 
 @app.get("/api/ofertas/{oferta_id}")
-def api_get_oferta(oferta_id: str, user_id: str = Depends(obtener_user_id)):
+def api_get_oferta(oferta_id: str, user_id: str = Depends(obtener_user_id_activo)):
     oferta = get_oferta(user_id, oferta_id)
     if not oferta:
         raise HTTPException(404, "Oferta no encontrada.")
@@ -274,7 +346,7 @@ def api_get_oferta(oferta_id: str, user_id: str = Depends(obtener_user_id)):
 
 
 @app.post("/api/ofertas")
-def api_save_oferta(req: OfertaRequest, user_id: str = Depends(obtener_user_id)):
+def api_save_oferta(req: OfertaRequest, user_id: str = Depends(obtener_user_id_activo)):
     return save_oferta(user_id, req.model_dump())
 
 
@@ -282,7 +354,7 @@ def api_save_oferta(req: OfertaRequest, user_id: str = Depends(obtener_user_id))
 def api_update_oferta(
     oferta_id: str,
     req: OfertaRequest,
-    user_id: str = Depends(obtener_user_id),
+    user_id: str = Depends(obtener_user_id_activo),
 ):
     if not get_oferta(user_id, oferta_id):
         raise HTTPException(404, "Oferta no encontrada.")
@@ -290,7 +362,7 @@ def api_update_oferta(
 
 
 @app.delete("/api/ofertas/{oferta_id}")
-def api_delete_oferta(oferta_id: str, user_id: str = Depends(obtener_user_id)):
+def api_delete_oferta(oferta_id: str, user_id: str = Depends(obtener_user_id_activo)):
     if not get_oferta(user_id, oferta_id):
         raise HTTPException(404, "Oferta no encontrada.")
     delete_oferta(user_id, oferta_id)
@@ -300,12 +372,12 @@ def api_delete_oferta(oferta_id: str, user_id: str = Depends(obtener_user_id)):
 # ── ADMIN ───────────────────────────────────────────────
 
 @app.get("/api/admin/usuarios")
-def api_admin_list_users(_admin: dict = Depends(requiere_admin)):
+def api_admin_list_users(_admin: dict = Depends(requiere_admin_activo)):
     return {"usuarios": list_users()}
 
 
 @app.post("/api/admin/usuarios")
-def api_admin_create_user(req: CrearUsuarioRequest, _admin: dict = Depends(requiere_admin)):
+def api_admin_create_user(req: CrearUsuarioRequest, _admin: dict = Depends(requiere_admin_activo)):
     try:
         user = create_user(req.email, req.password, req.nombre)
     except ValueError as e:
@@ -317,7 +389,7 @@ def api_admin_create_user(req: CrearUsuarioRequest, _admin: dict = Depends(requi
 def api_admin_reset_password(
     user_id: str,
     req: ResetPasswordRequest,
-    _admin: dict = Depends(requiere_admin),
+    _admin: dict = Depends(requiere_admin_activo),
 ):
     try:
         update_password(user_id, req.password)
@@ -327,7 +399,7 @@ def api_admin_reset_password(
 
 
 @app.delete("/api/admin/usuarios/{user_id}")
-def api_admin_delete_user(user_id: str, _admin: dict = Depends(requiere_admin)):
+def api_admin_delete_user(user_id: str, _admin: dict = Depends(requiere_admin_activo)):
     if user_id == _admin.get("sub"):
         raise HTTPException(400, "No puedes eliminar tu propia cuenta.")
     try:
@@ -340,12 +412,12 @@ def api_admin_delete_user(user_id: str, _admin: dict = Depends(requiere_admin)):
 # ── FICHAS TÉCNICAS ─────────────────────────────────────
 
 @app.get("/api/fichas")
-def api_list_fichas(user_id: str = Depends(obtener_user_id)):
+def api_list_fichas(user_id: str = Depends(obtener_user_id_activo)):
     return {"fichas": list_fichas(solo_activas=True), "categorias": CATEGORIAS}
 
 
 @app.get("/api/admin/fichas")
-def api_admin_list_fichas(_admin: dict = Depends(requiere_admin)):
+def api_admin_list_fichas(_admin: dict = Depends(requiere_admin_activo)):
     return {"fichas": list_fichas(solo_activas=False), "categorias": CATEGORIAS}
 
 
@@ -355,7 +427,7 @@ async def api_admin_add_ficha(
     nombre: str = Form(...),
     categoria: str = Form("otros"),
     activa: bool = Form(True),
-    _admin: dict = Depends(requiere_admin),
+    _admin: dict = Depends(requiere_admin_activo),
 ):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Solo archivos PDF.")
@@ -372,7 +444,7 @@ async def api_admin_add_ficha(
 def api_admin_update_ficha(
     ficha_id: str,
     req: FichaUpdateRequest,
-    _admin: dict = Depends(requiere_admin),
+    _admin: dict = Depends(requiere_admin_activo),
 ):
     try:
         return update_ficha(ficha_id, nombre=req.nombre, categoria=req.categoria, activa=req.activa)
@@ -381,7 +453,7 @@ def api_admin_update_ficha(
 
 
 @app.delete("/api/admin/fichas/{ficha_id}")
-def api_admin_delete_ficha(ficha_id: str, _admin: dict = Depends(requiere_admin)):
+def api_admin_delete_ficha(ficha_id: str, _admin: dict = Depends(requiere_admin_activo)):
     try:
         delete_ficha(ficha_id)
     except ValueError as e:
@@ -392,7 +464,7 @@ def api_admin_delete_ficha(ficha_id: str, _admin: dict = Depends(requiere_admin)
 @app.post("/api/generar-pdf-paquete")
 def generar_pdf_paquete(
     req: GenerarPdfPaqueteRequest,
-    user_id: str = Depends(obtener_user_id),
+    user_id: str = Depends(obtener_user_id_activo),
 ):
     if not req.items:
         raise HTTPException(400, "No hay partidas para generar el PDF.")
@@ -435,7 +507,10 @@ def generar_pdf_paquete(
 # ── PRESUPUESTOS ────────────────────────────────────────
 
 @app.post("/api/upload-txt")
-async def upload_txt(file: UploadFile = File(...)):
+async def upload_txt(
+    file: UploadFile = File(...),
+    _user_id: str = Depends(obtener_user_id_activo),
+):
     if not file.filename.lower().endswith(".txt"):
         raise HTTPException(400, "Solo se aceptan archivos .txt")
     data = await file.read()
@@ -454,6 +529,7 @@ async def upload_txt(file: UploadFile = File(...)):
 async def upload_pdf(
     file: UploadFile = File(...),
     items_json: str = Form(...),
+    _user_id: str = Depends(obtener_user_id_activo),
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Solo se aceptan archivos .pdf")
@@ -473,7 +549,10 @@ async def upload_pdf(
 
 
 @app.post("/api/upload-condiciones")
-async def upload_condiciones(file: UploadFile = File(...)):
+async def upload_condiciones(
+    file: UploadFile = File(...),
+    _user_id: str = Depends(obtener_user_id_activo),
+):
     data = await file.read()
     for enc in ("utf-8", "latin-1", "cp1252"):
         try:
@@ -486,7 +565,7 @@ async def upload_condiciones(file: UploadFile = File(...)):
 
 
 @app.post("/api/calcular")
-def calcular(req: CalcularRequest):
+def calcular(req: CalcularRequest, _user_id: str = Depends(obtener_user_id_activo)):
     if not req.items:
         raise HTTPException(400, "No hay partidas.")
     items = aplicar_margenes(req.items, req.margen_global, req.colocacion_global)
@@ -509,7 +588,7 @@ def _bloquear_si_errores_presupuesto(items: list[dict], datos_cliente: dict | No
 @app.post("/api/generar-pdf")
 def generar_pdf(
     req: GenerarPdfRequest,
-    user_id: str = Depends(obtener_user_id),
+    user_id: str = Depends(obtener_user_id_activo),
 ):
     if not req.items:
         raise HTTPException(400, "No hay partidas para generar el PDF.")
@@ -535,12 +614,12 @@ def generar_pdf(
 @app.post("/api/generar-resumen-pdf")
 def generar_resumen_pdf(
     req: GenerarPdfRequest,
-    user_id: str | None = Depends(obtener_user_id_opcional),
+    user_id: str = Depends(obtener_user_id_activo),
 ):
     if not req.items:
         raise HTTPException(400, "No hay partidas para generar el resumen.")
     _bloquear_si_errores_presupuesto(req.items, req.datos_cliente)
-    perfil = _perfil_pdf(user_id) if user_id else None
+    perfil = _perfil_pdf(user_id)
     try:
         pdf_bytes = generar_resumen_pdf_bytes(req.items, req.datos_cliente, perfil=perfil)
     except Exception as e:
