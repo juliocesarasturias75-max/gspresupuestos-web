@@ -102,24 +102,31 @@
         .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
         .hidden { display: none; }
         .terminos-box {
-            background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px;
-            padding: 12px; margin-top: 14px; font-size: 0.78rem; line-height: 1.45;
+            background: #eff6ff; border: 2px solid #3b82f6; border-radius: 10px;
+            padding: 24px 28px; font-size: 0.88rem; line-height: 1.5;
         }
         .terminos-box.aceptado {
             background: #ecfdf5; border-color: #10b981;
         }
-        .terminos-box h2 { margin-top: 0; }
-        .terminos-links { margin: 8px 0 10px; padding-left: 18px; }
-        .terminos-links a { color: #1e40af; font-weight: 600; }
-        .terminos-check {
-            display: flex; align-items: flex-start; gap: 8px;
-            font-weight: 600; margin: 10px 0; cursor: pointer;
+        .terminos-principal {
+            max-width: 580px;
+            margin: 48px auto 24px;
         }
-        .terminos-check input { width: auto; margin-top: 3px; }
-        .sin-terminos .panel.right,
-        .sin-terminos .panel.left > :not(#panelTerminos) {
+        .terminos-principal h2 { font-size: 1.15rem; margin-bottom: 10px; }
+        .terminos-principal p { margin: 0 0 8px; color: #475569; }
+        .terminos-links { margin: 12px 0 16px; padding-left: 20px; }
+        .terminos-links li { margin-bottom: 6px; }
+        .terminos-links a { color: #1e40af; font-weight: 600; font-size: 0.95rem; }
+        .terminos-check {
+            display: flex; align-items: flex-start; gap: 10px;
+            font-weight: 600; margin: 16px 0; cursor: pointer;
+            background: white; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px;
+        }
+        .terminos-check input { width: auto; margin-top: 4px; flex-shrink: 0; }
+        .sin-terminos .panel.left,
+        .sin-terminos #contenidoPresupuesto {
             pointer-events: none;
-            opacity: 0.45;
+            opacity: 0.4;
         }
         .sin-terminos #panelTerminos { opacity: 1; pointer-events: auto; }
         @media (max-width: 900px) { .container { flex-direction: column; } .left { width: 100%; } }
@@ -204,23 +211,6 @@
             </div>
             <button class="btn btn-primary" onclick="aplicarMargenes()" style="margin-top:10px;width:100%">Aplicar márgenes</button>
 
-            <div id="panelTerminos" class="terminos-box">
-                <h2>4. Aceptación de uso</h2>
-                <p>Para activar el programa debe leer y aceptar:</p>
-                <ul class="terminos-links">
-                    <li><a href="/docs/manual" target="_blank" rel="noopener">Manual de usuario</a></li>
-                    <li><a href="/docs/condiciones" target="_blank" rel="noopener">Condiciones de uso y exención de responsabilidad</a></li>
-                </ul>
-                <label class="terminos-check" id="wrapChkTerminos">
-                    <input type="checkbox" id="chkAceptarTerminos" onchange="actualizarBtnTerminos()">
-                    <span>He leído y acepto el manual y las condiciones de uso. Soy responsable de revisar los presupuestos antes de entregarlos al cliente.</span>
-                </label>
-                <button class="btn btn-primary" id="btnAceptarTerminos" onclick="aceptarTerminos()" style="width:100%" disabled>
-                    Aceptar y activar programa
-                </button>
-                <div id="statusTerminos" class="status"></div>
-            </div>
-
             <label style="margin-top:14px">📝 Nota para todos los modelos</label>
             <textarea id="notaGlobal" rows="3" placeholder="Esta nota aparecerá al final de cada partida en el PDF..."></textarea>
             <button class="btn btn-primary" onclick="aplicarNotaGlobal()" style="margin-top:6px;width:100%">Aplicar nota a todos</button>
@@ -228,6 +218,24 @@
         </div>
 
         <div class="panel right">
+            <div id="panelTerminos" class="terminos-box terminos-principal">
+                <h2>Aceptación de uso</h2>
+                <p>Para activar el programa debe leer y aceptar los siguientes documentos:</p>
+                <ul class="terminos-links">
+                    <li><a href="/docs/manual" target="_blank" rel="noopener">📘 Manual de usuario</a></li>
+                    <li><a href="/docs/condiciones" target="_blank" rel="noopener">📄 Condiciones de uso y exención de responsabilidad</a></li>
+                </ul>
+                <label class="terminos-check" id="wrapChkTerminos">
+                    <input type="checkbox" id="chkAceptarTerminos" onchange="actualizarBtnTerminos()">
+                    <span>He leído y acepto el manual y las condiciones de uso. Soy responsable de revisar los presupuestos antes de entregarlos al cliente.</span>
+                </label>
+                <button class="btn btn-primary" id="btnAceptarTerminos" onclick="aceptarTerminos()" style="width:100%;padding:12px;font-size:0.95rem" disabled>
+                    Aceptar y activar programa
+                </button>
+                <div id="statusTerminos" class="status" style="margin-top:10px"></div>
+            </div>
+
+            <div id="contenidoPresupuesto" class="hidden">
             <h2>Partidas del presupuesto</h2>
             <div class="tabla-toolbar hidden" id="tablaToolbar">
                 <button class="btn btn-add" onclick="abrirModalPartida()">➕ Añadir partida</button>
@@ -251,6 +259,7 @@
                 </button>
             </div>
             <div id="statusPdfGen" class="status"></div>
+            </div>
         </div>
     </div>
 
@@ -444,19 +453,18 @@
             terminosAceptados = !!estado?.aceptado;
             actualizarBloqueoTerminos();
             const panel = document.getElementById("panelTerminos");
+            const contenido = document.getElementById("contenidoPresupuesto");
             const status = document.getElementById("statusTerminos");
             const wrapChk = document.getElementById("wrapChkTerminos");
             const btn = document.getElementById("btnAceptarTerminos");
             if (!panel) return;
 
             if (terminosAceptados) {
-                panel.classList.add("aceptado");
-                if (wrapChk) wrapChk.classList.add("hidden");
-                if (btn) btn.classList.add("hidden");
-                const fecha = formatearFechaTerminos(estado.aceptado_at);
-                status.innerHTML = `<span class="ok">✅ Condiciones aceptadas${fecha ? ` el ${fecha}` : ""}</span>`;
+                panel.classList.add("hidden");
+                if (contenido) contenido.classList.remove("hidden");
             } else {
-                panel.classList.remove("aceptado");
+                panel.classList.remove("hidden", "aceptado");
+                if (contenido) contenido.classList.add("hidden");
                 if (wrapChk) wrapChk.classList.remove("hidden");
                 if (btn) btn.classList.remove("hidden");
                 const chk = document.getElementById("chkAceptarTerminos");
@@ -728,6 +736,8 @@
 
         (async () => {
             if (!(await requiereAuth())) return;
+            actualizarBloqueoTerminos();
+            document.getElementById("contenidoPresupuesto")?.classList.add("hidden");
             const me = await cargarUsuarioActual();
             usuarioActual = me;
             if (me) {
