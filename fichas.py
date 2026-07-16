@@ -6,8 +6,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FICHAS_DIR = os.path.join(BASE_DIR, "data", "_fichas")
+from data_paths import get_data_dir
+
+FICHAS_DIR = os.path.join(get_data_dir(), "_fichas")
 FILES_DIR = os.path.join(FICHAS_DIR, "files")
 CATALOGO_FILE = os.path.join(FICHAS_DIR, "catalogo.json")
 

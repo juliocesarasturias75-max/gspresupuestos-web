@@ -8,10 +8,10 @@ from typing import Optional
 
 import bcrypt
 
+from data_paths import get_data_dir
 from store import init_user_data
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-REGISTRY_DIR = os.path.join(BASE_DIR, "data", "_registry")
+REGISTRY_DIR = os.path.join(get_data_dir(), "_registry")
 USERS_FILE = os.path.join(REGISTRY_DIR, "users.json")
 
 

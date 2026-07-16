@@ -6,8 +6,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+from data_paths import get_data_dir
+
+DATA_DIR = get_data_dir()
 
 
 def _ahora() -> str:
