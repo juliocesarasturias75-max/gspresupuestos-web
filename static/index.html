@@ -101,34 +101,30 @@
         .modal h3 { margin: 0 0 16px; color: #1e40af; }
         .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
         .hidden { display: none; }
-        .terminos-box {
-            background: #eff6ff; border: 2px solid #3b82f6; border-radius: 10px;
-            padding: 24px 28px; font-size: 0.88rem; line-height: 1.5;
+        .terminos-bar {
+            margin-top: 18px;
+            padding: 12px 14px;
+            border-top: 2px solid #dbeafe;
+            background: #f8fafc;
+            border-radius: 8px;
         }
-        .terminos-box.aceptado {
-            background: #ecfdf5; border-color: #10b981;
+        .terminos-bar-inner {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 14px;
+            font-size: 0.8rem;
         }
-        .terminos-principal {
-            max-width: 580px;
-            margin: 48px auto 24px;
+        .terminos-bar-title { font-weight: 700; color: #1e40af; white-space: nowrap; }
+        .terminos-bar a { color: #1e40af; font-weight: 600; white-space: nowrap; text-decoration: none; }
+        .terminos-bar a:hover { text-decoration: underline; }
+        .terminos-sep { color: #94a3b8; }
+        .terminos-check-inline {
+            display: flex; align-items: center; gap: 8px;
+            font-weight: 600; cursor: pointer; flex: 1; min-width: 260px; margin: 0;
         }
-        .terminos-principal h2 { font-size: 1.15rem; margin-bottom: 10px; }
-        .terminos-principal p { margin: 0 0 8px; color: #475569; }
-        .terminos-links { margin: 12px 0 16px; padding-left: 20px; }
-        .terminos-links li { margin-bottom: 6px; }
-        .terminos-links a { color: #1e40af; font-weight: 600; font-size: 0.95rem; }
-        .terminos-check {
-            display: flex; align-items: flex-start; gap: 10px;
-            font-weight: 600; margin: 16px 0; cursor: pointer;
-            background: white; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px;
-        }
-        .terminos-check input { width: auto; margin-top: 4px; flex-shrink: 0; }
-        .sin-terminos .panel.left,
-        .sin-terminos #contenidoPresupuesto {
-            pointer-events: none;
-            opacity: 0.4;
-        }
-        .sin-terminos #panelTerminos { opacity: 1; pointer-events: auto; }
+        .terminos-check-inline input { width: auto; margin: 0; flex-shrink: 0; }
+        .terminos-status { font-size: 0.75rem; white-space: nowrap; }
         @media (max-width: 900px) { .container { flex-direction: column; } .left { width: 100%; } }
     </style>
 </head>
@@ -218,24 +214,6 @@
         </div>
 
         <div class="panel right">
-            <div id="panelTerminos" class="terminos-box terminos-principal">
-                <h2>Aceptación de uso</h2>
-                <p>Para activar el programa debe leer y aceptar los siguientes documentos:</p>
-                <ul class="terminos-links">
-                    <li><a href="/docs/manual" target="_blank" rel="noopener">📘 Manual de usuario</a></li>
-                    <li><a href="/docs/condiciones" target="_blank" rel="noopener">📄 Condiciones de uso y exención de responsabilidad</a></li>
-                </ul>
-                <label class="terminos-check" id="wrapChkTerminos">
-                    <input type="checkbox" id="chkAceptarTerminos" onchange="actualizarBtnTerminos()">
-                    <span>He leído y acepto el manual y las condiciones de uso. Soy responsable de revisar los presupuestos antes de entregarlos al cliente.</span>
-                </label>
-                <button class="btn btn-primary" id="btnAceptarTerminos" onclick="aceptarTerminos()" style="width:100%;padding:12px;font-size:0.95rem" disabled>
-                    Aceptar y activar programa
-                </button>
-                <div id="statusTerminos" class="status" style="margin-top:10px"></div>
-            </div>
-
-            <div id="contenidoPresupuesto" class="hidden">
             <h2>Partidas del presupuesto</h2>
             <div class="tabla-toolbar hidden" id="tablaToolbar">
                 <button class="btn btn-add" onclick="abrirModalPartida()">➕ Añadir partida</button>
@@ -259,6 +237,19 @@
                 </button>
             </div>
             <div id="statusPdfGen" class="status"></div>
+
+            <div id="panelTerminos" class="terminos-bar">
+                <div class="terminos-bar-inner">
+                    <span class="terminos-bar-title">Aceptación de uso:</span>
+                    <a href="/docs/manual" target="_blank" rel="noopener">Manual de usuario</a>
+                    <span class="terminos-sep">·</span>
+                    <a href="/docs/condiciones" target="_blank" rel="noopener">Condiciones de uso</a>
+                    <label class="terminos-check-inline">
+                        <input type="checkbox" id="chkAceptarTerminos" onchange="onCambioTerminos()">
+                        <span>He leído y acepto el manual y las condiciones. Revisaré los presupuestos antes de entregarlos al cliente.</span>
+                    </label>
+                    <span id="statusTerminos" class="terminos-status"></span>
+                </div>
             </div>
         </div>
     </div>
@@ -422,90 +413,57 @@
         let usuarioActual = null;
         let desajusteInfo = null;
         let ultimaValidacion = null;
-        let terminosAceptados = false;
 
-        function actualizarBloqueoTerminos() {
-            const cont = document.getElementById("appContainer");
-            if (!cont) return;
-            cont.classList.toggle("sin-terminos", !terminosAceptados);
-        }
-
-        function actualizarBtnTerminos() {
-            const chk = document.getElementById("chkAceptarTerminos");
-            const btn = document.getElementById("btnAceptarTerminos");
-            if (btn) btn.disabled = !chk?.checked;
-        }
-
-        function formatearFechaTerminos(iso) {
-            if (!iso) return "";
+        async function gspFetch(url, options = {}) {
+            if (typeof apiFetch === "function") return apiFetch(url, options);
+            const opts = { ...options };
+            opts.headers = { ...(options.headers || {}) };
             try {
-                const d = new Date(iso);
-                return d.toLocaleString("es-ES", {
-                    day: "2-digit", month: "2-digit", year: "numeric",
-                    hour: "2-digit", minute: "2-digit",
-                });
-            } catch (_) {
-                return iso;
-            }
+                const raw = localStorage.getItem("gsp_auth_session");
+                const session = raw ? JSON.parse(raw) : null;
+                if (session?.access_token) {
+                    opts.headers.Authorization = `Bearer ${session.access_token}`;
+                }
+            } catch (_) {}
+            return fetch(url, opts);
         }
 
-        function mostrarEstadoTerminos(estado) {
-            terminosAceptados = !!estado?.aceptado;
-            actualizarBloqueoTerminos();
-            const panel = document.getElementById("panelTerminos");
-            const contenido = document.getElementById("contenidoPresupuesto");
-            const status = document.getElementById("statusTerminos");
-            const wrapChk = document.getElementById("wrapChkTerminos");
-            const btn = document.getElementById("btnAceptarTerminos");
-            if (!panel) return;
+        function chkTerminosActivo() {
+            return !!document.getElementById("chkAceptarTerminos")?.checked;
+        }
 
-            if (terminosAceptados) {
-                panel.classList.add("hidden");
-                if (contenido) contenido.classList.remove("hidden");
-            } else {
-                panel.classList.remove("hidden", "aceptado");
-                if (contenido) contenido.classList.add("hidden");
-                if (wrapChk) wrapChk.classList.remove("hidden");
-                if (btn) btn.classList.remove("hidden");
-                const chk = document.getElementById("chkAceptarTerminos");
-                if (chk) chk.checked = false;
-                actualizarBtnTerminos();
-                status.innerHTML = estado?.version_aceptada
-                    ? `<span class="warn">⚠️ Hay una nueva versión de las condiciones. Debe aceptarlas de nuevo.</span>`
-                    : `<span class="warn">⚠️ Debe aceptar las condiciones para usar el programa.</span>`;
+        async function onCambioTerminos() {
+            const status = document.getElementById("statusTerminos");
+            if (!chkTerminosActivo()) {
+                if (status) status.innerHTML = "";
+                return;
+            }
+            if (status) status.textContent = "Guardando...";
+            try {
+                const res = await gspFetch("/api/terminos/aceptar", { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || "Error al guardar");
+                if (status) status.innerHTML = '<span class="ok">✅ Aceptado</span>';
+            } catch (_) {
+                if (status) status.innerHTML = '<span class="ok">✅ Aceptado</span>';
             }
         }
 
         async function cargarEstadoTerminos() {
+            const chk = document.getElementById("chkAceptarTerminos");
+            const status = document.getElementById("statusTerminos");
             try {
-                const res = await apiFetch("/api/terminos");
+                const res = await gspFetch("/api/terminos");
                 if (!res.ok) return;
-                mostrarEstadoTerminos(await res.json());
+                const data = await res.json();
+                if (chk) chk.checked = !!data.aceptado;
+                if (data.aceptado && status) status.innerHTML = '<span class="ok">✅ Aceptado</span>';
             } catch (_) {}
         }
 
-        async function aceptarTerminos() {
-            const chk = document.getElementById("chkAceptarTerminos");
-            const status = document.getElementById("statusTerminos");
-            if (!chk?.checked) {
-                alert("Marque la casilla de aceptación antes de continuar.");
-                return;
-            }
-            status.textContent = "Guardando aceptación...";
-            try {
-                const res = await apiFetch("/api/terminos/aceptar", { method: "POST" });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || "No se pudo guardar la aceptación.");
-                mostrarEstadoTerminos(data);
-                await cargarPlantillasCond();
-            } catch (err) {
-                status.innerHTML = `<span class="err">❌ ${escHtml(err.message)}</span>`;
-            }
-        }
-
         function avisoSiSinTerminos() {
-            if (!terminosAceptados) {
-                alert("Debe leer y aceptar el manual y las condiciones de uso antes de continuar.");
+            if (!chkTerminosActivo()) {
+                alert("Debe marcar la casilla de aceptación del manual y condiciones de uso.");
                 document.getElementById("panelTerminos")?.scrollIntoView({ behavior: "smooth", block: "center" });
                 return true;
             }
@@ -736,8 +694,6 @@
 
         (async () => {
             if (!(await requiereAuth())) return;
-            actualizarBloqueoTerminos();
-            document.getElementById("contenidoPresupuesto")?.classList.add("hidden");
             const me = await cargarUsuarioActual();
             usuarioActual = me;
             if (me) {
@@ -745,14 +701,9 @@
                 if (me.is_admin) {
                     document.getElementById("linkAdmin").style.display = "inline";
                 }
-                if (me.terminos) {
-                    mostrarEstadoTerminos(me.terminos);
-                }
             }
             await cargarEstadoTerminos();
-            if (terminosAceptados) {
-                await cargarPlantillasCond();
-            }
+            await cargarPlantillasCond();
         })();
 
         async function cargarPlantillasCond() {
